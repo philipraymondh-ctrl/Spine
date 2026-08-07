@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#DCE2DB">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Spine">
+<title>Spine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@600&display=swap">
+<style>
+:root {
+  --bg:      #DCE2DB;
+  --surface: #EDF0EA;
+  --ink:     #1F2A24;
+  --ink-dim: #5D6C60;
+  --accent:  #26507E;
+  --warn:    #8C3A2B;
+
+  --font-display: 'Archivo Narrow', system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --t-xs: 0.75rem; --t-sm: 0.875rem; --t-md: 1rem;
+  --t-lg: 1.375rem; --t-xl: 2.25rem;
+
+  --s1: 4px; --s2: 8px; --s3: 16px;
+  --s4: 24px; --s5: 40px; --s6: 64px;
+
+  --radius: 2px;
+  --line: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  --measure: 68ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+html { background: var(--bg); }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--t-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+h1, h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+/* Focus is never removed, only restyled. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button, input, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.wrap {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--s4) var(--s3) var(--s6);
+}
+
+.screen { display: none; }
+.screen.on { display: block; }
+
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 var(--s2);
+}
+
+.hint {
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  margin: var(--s2) 0 0;
+}
+
+/* ---------- controls ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--s2) var(--s4);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--t-md);
+  text-align: center;
+}
+.btn:hover { background: color-mix(in srgb, var(--ink) 5%, var(--surface)); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+}
+.btn-primary:hover { background: color-mix(in srgb, #000 12%, var(--accent)); }
+
+.btn-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+
+.btn-block { display: flex; width: 100%; }
+
+.row {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.row > .btn { flex: 1 1 auto; }
+
+input[type="text"], input[type="password"], textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border-radius: var(--radius);
+  padding: var(--s2) var(--s3);
+  min-height: 44px;
+}
+textarea { resize: vertical; line-height: 1.6; }
+
+.banner {
+  border-left: 2px solid var(--warn);
+  background: var(--surface);
+  color: var(--warn);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-sm);
+  margin-bottom: var(--s3);
+}
+
+/* ---------- screen 1: dump ---------- */
+
+#dump-text {
+  min-height: 46dvh;
+  font-size: var(--t-md);
+}
+
+/* ---------- screen 2: order ---------- */
+
+.choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  margin-bottom: var(--s2);
+  cursor: pointer;
+  min-height: 44px;
+}
+.choice:hover { border-color: var(--accent); }
+.choice .t {
+  font-family: var(--font-display);
+  font-size: var(--t-lg);
+  line-height: 1.25;
+  display: block;
+}
+.choice .c {
+  display: block;
+  margin-top: var(--s1);
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+}
+
+/* ---------- screen 3: today ---------- */
+
+.today {
+  min-height: 42dvh;
+  padding-top: var(--s5);
+}
+
+.action-line {
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.blocked {
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  margin: var(--s3) 0 0;
+}
+
+.verdict {
+  background: var(--surface);
+  border-left: 2px solid var(--warn);
+  padding: var(--s3);
+  margin: var(--s4) 0 var(--s3);
+}
+.verdict p { margin: 0; }
+
+/* ---------- the ledger ---------- */
+
+.ledger { margin-top: var(--s6); border-top: var(--line); }
+
+.ledger h2 {
+  font-size: var(--t-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  padding-top: var(--s3);
+  margin-bottom: var(--s2);
+}
+
+.entry {
+  position: relative;
+  padding: var(--s2) 0;
+  border-bottom: var(--line);
+  font-size: var(--t-sm);
+}
+.entry .n {
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--s2);
+}
+.entry .why {
+  display: block;
+  color: var(--ink-dim);
+  font-size: var(--t-xs);
+  margin-top: var(--s1);
+}
+.entry.at { color: var(--accent); }
+
+/* The signature: the strike stays on the page forever. */
+.entry.ruled > .l { position: relative; color: var(--ink-dim); }
+.entry.ruled > .l::after {
+  content: "";
+  position: absolute;
+  left: -2px; right: -2px; top: 50%;
+  height: 2px;
+  background: var(--warn);
+  transform: rotate(-0.4deg);
+  pointer-events: none;
+}
+
+.empty { color: var(--ink-dim); font-size: var(--t-sm); padding: var(--s3) 0; }
+
+.closed {
+  background: var(--surface);
+  border: var(--line);
+  padding: var(--s4);
+  text-align: center;
+}
+.closed p { margin: 0 0 var(--s3); font-family: var(--font-display); font-size: var(--t-lg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ key ============ -->
+  <section id="s-key" class="screen">
+    <p class="eyebrow">Spine</p>
+    <h1 style="font-size:var(--t-lg);margin-bottom:var(--s3)">Paste your Anthropic API key. It stays on this device.</h1>
+    <input type="password" id="key-input" autocomplete="off" spellcheck="false" aria-label="Anthropic API key">
+    <div style="margin-top:var(--s3)">
+      <button class="btn btn-primary btn-block" id="key-save">Save key</button>
+    </div>
+  </section>
+
+  <!-- ============ 1. dump ============ -->
+  <section id="s-dump" class="screen">
+    <p class="eyebrow">Dump</p>
+    <div id="dump-banner"></div>
+    <textarea id="dump-text" aria-label="Everything you're carrying"
+      placeholder="Everything you're carrying. Prose, fragments, half-sentences. Don't organise it."></textarea>
+    <div style="margin-top:var(--s3)">
+      <button class="btn btn-primary btn-block" id="dump-go">Extract items</button>
+    </div>
+  </section>
+
+  <!-- ============ 2. order ============ -->
+  <section id="s-order" class="screen">
+    <p class="eyebrow" id="order-progress">Order</p>
+    <h1 style="font-size:var(--t-lg);margin-bottom:var(--s4)">Which one hurts more if it slips?</h1>
+    <button class="choice" id="pick-a"><span class="t"></span><span class="c"></span></button>
+    <button class="choice" id="pick-b"><span class="t"></span><span class="c"></span></button>
+  </section>
+
+  <!-- ============ 3. today ============ -->
+  <section id="s-today" class="screen">
+    <div id="today-banner"></div>
+    <div class="today" id="today-body"></div>
+    <div class="ledger">
+      <h2>Ledger</h2>
+      <div id="ledger-body"></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   storage — three keys, version prefixed. Schema change = reset.
+   ============================================================ */
+
+const K_SETTINGS = "spine.v1.settings";
+const K_CYCLE    = "spine.v1.cycle";
+const K_ARCHIVE  = "spine.v1.archive";
+
+const MODEL = "claude-sonnet-5";
+const API = "https://api.anthropic.com/v1/messages";
+
+function read(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch (e) {
+    return fallback;
+  }
+}
+function write(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota; keep going */ }
+}
+
+let settings = read(K_SETTINGS, null);
+let cycle    = read(K_CYCLE, null);
+let archive  = read(K_ARCHIVE, []);
+
+function saveCycle() { write(K_CYCLE, cycle); }
+
+function uuid() {
+  if (crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
+/* ============================================================
+   screens
+   ============================================================ */
+
+const screens = {
+  key:   document.getElementById("s-key"),
+  dump:  document.getElementById("s-dump"),
+  order: document.getElementById("s-order"),
+  today: document.getElementById("s-today")
+};
+
+function show(name) {
+  for (const k in screens) screens[k].classList.toggle("on", k === name);
+  window.scrollTo(0, 0);
+}
+
+function banner(el, text) {
+  el.textContent = "";
+  if (!text) return;
+  const d = document.createElement("div");
+  d.className = "banner";
+  d.setAttribute("role", "status");
+  d.textContent = text;
+  el.appendChild(d);
+}
+
+/* ============================================================
+   the model — one call path, never blocking the flow
+   ============================================================ */
+
+async function ask(system, user, maxTokens) {
+  const res = await fetch(API, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": settings.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system: system,
+      messages: [{ role: "user", content: user }]
+    })
+  });
+  if (!res.ok) throw new Error("http " + res.status);
+  const data = await res.json();
+  const block = (data.content || []).find(b => b && b.type === "text");
+  if (!block) throw new Error("no text");
+  return block.text;
+}
+
+function unfence(text) {
+  return String(text).replace(/```(?:json)?/gi, "").trim();
+}
+
+const SYS_EXTRACT =
+`You convert a messy prose dump of someone's obligations into discrete units.
+Return ONLY a JSON array. No preamble, no markdown fences, no commentary.
+Each element: {"title","action","blockedOn","consequence"}
+- title: under 6 words.
+- action: the next single physical action. A verb someone could do in one sitting. Never "think about", "review", "consider", "plan".
+- blockedOn: a named person if the dump implies one is required, else "".
+- consequence: what concretely breaks if this slips two weeks. If nothing breaks, write "Nothing breaks."
+Do not merge distinct obligations. Do not invent obligations not present in the input.
+If the input contains no obligations, return [].`;
+
+const SYS_VERDICT =
+`Return ONLY JSON: {"verdict":"...","recommend":"strike"|"keep"}
+verdict: two sentences maximum, addressed to the person, no hedging.
+Given an item deferred three times with its stated reasons, say plainly whether this is
+(a) not actually a commitment, or (b) genuinely blocked on another person.
+Recommend "keep" only if the deferral reasons name a specific external dependency.`;
+
+function newItem(fields) {
+  return {
+    id: uuid(),
+    title: fields.title,
+    action: fields.action,
+    blockedOn: fields.blockedOn,
+    consequence: fields.consequence,
+    deferrals: [],
+    state: "live",
+    struckReason: ""
+  };
+}
+
+function parseExtraction(text) {
+  const clean = unfence(text);
+  const open = clean.indexOf("[");
+  const close = clean.lastIndexOf("]");
+  if (open === -1 || close <= open) return [];
+  let arr;
+  try { arr = JSON.parse(clean.slice(open, close + 1)); } catch (e) { return []; }
+  if (!Array.isArray(arr)) return [];
+  const keys = ["title", "action", "blockedOn", "consequence"];
+  return arr
+    .filter(el => el && typeof el === "object" && keys.every(k => typeof el[k] === "string"))
+    .filter(el => el.title.trim() !== "" || el.action.trim() !== "")
+    .map(newItem);
+}
+
+// Never block the flow on the model: raw lines, empty fields, and say so.
+function fallbackSplit(raw) {
+  return raw
+    .split("\n")
+    .map(l => l.replace(/^\s*[-*•\d.)\]]+\s*/, "").trim())
+    .filter(l => l !== "")
+    .map(l => newItem({
+      title: l.length > 48 ? l.slice(0, 48) + "…" : l,
+      action: l,
+      blockedOn: "",
+      consequence: ""
+    }));
+}
+
+function parseVerdict(text) {
+  const fallback = {
+    verdict: "Deferred three times with no external blocker named.",
+    recommend: "strike"
+  };
+  const clean = unfence(text);
+  const open = clean.indexOf("{");
+  const close = clean.lastIndexOf("}");
+  if (open === -1 || close <= open) return fallback;
+  let obj;
+  try { obj = JSON.parse(clean.slice(open, close + 1)); } catch (e) { return fallback; }
+  if (!obj || typeof obj.verdict !== "string" || obj.verdict.trim() === "") return fallback;
+  return {
+    verdict: obj.verdict,
+    recommend: obj.recommend === "keep" ? "keep" : "strike"
+  };
+}
+
+/* ============================================================
+   1. dump
+   ============================================================ */
+
+const dumpText = document.getElementById("dump-text");
+const dumpGo = document.getElementById("dump-go");
+const dumpBanner = document.getElementById("dump-banner");
+
+dumpGo.addEventListener("click", async () => {
+  const raw = dumpText.value;
+  if (raw.trim() === "") { dumpText.focus(); return; }
+
+  dumpGo.disabled = true;
+  dumpGo.textContent = "Extracting…";
+  banner(dumpBanner, "");
+
+  let items = [];
+  let failed = false;
+  try {
+    items = parseExtraction(await ask(SYS_EXTRACT, raw, 4000));
+  } catch (e) {
+    failed = true;
+  }
+  if (items.length === 0) { items = fallbackSplit(raw); failed = true; }
+
+  dumpGo.disabled = false;
+  dumpGo.textContent = "Extract items";
+
+  const now = new Date().toISOString();
+  cycle = { id: now.slice(0, 10), startedAt: now, items: items, orderedIds: [], cursor: 0 };
+  saveCycle();
+
+  banner(document.getElementById("today-banner"),
+    failed ? "Extraction failed. Items are raw — fill in the next action yourself." : "");
+
+  dumpText.value = "";
+  startOrdering();
+});
+
+/* ============================================================
+   2. order — pairwise forced choice, merge-sorted
+   ============================================================ */
+
+const pickA = document.getElementById("pick-a");
+const pickB = document.getElementById("pick-b");
+const orderProgress = document.getElementById("order-progress");
+
+let pending = null;   // resolve fn for the comparison in flight
+let asked = 0;
+let bound = 0;
+
+// Merge sort's comparison count is data-dependent; this is its ceiling,
+// so the walk can finish early but never overrun the stated total.
+function comparisonBound(n) {
+  if (n < 2) return 0;
+  const k = Math.ceil(Math.log2(n));
+  return n * k - Math.pow(2, k) + 1;
+}
+
+function paint(btn, item) {
+  btn.querySelector(".t").textContent = item.title;
+  btn.querySelector(".c").textContent = item.consequence;
+}
+
+function compare(a, b) {
+  return new Promise(resolve => {
+    orderProgress.textContent = (asked + 1) + " of " + bound + " choices";
+    paint(pickA, a);
+    paint(pickB, b);
+    pending = resolve;
+  });
+}
+
+function choose(value) {
+  if (!pending) return;
+  const resolve = pending;
+  pending = null;
+  asked++;
+  resolve(value);
+}
+
+// Hurts more sorts first.
+pickA.addEventListener("click", () => choose(-1));
+pickB.addEventListener("click", () => choose(1));
+
+async function mergeSort(list) {
+  if (list.length <= 1) return list;
+  const mid = list.length >> 1;
+  const left = await mergeSort(list.slice(0, mid));
+  const right = await mergeSort(list.slice(mid));
+  const out = [];
+  let i = 0, j = 0;
+  while (i < left.length && j < right.length) {
+    if (await compare(left[i], right[j]) <= 0) out.push(left[i++]);
+    else out.push(right[j++]);
+  }
+  while (i < left.length) out.push(left[i++]);
+  while (j < right.length) out.push(right[j++]);
+  return out;
+}
+
+async function startOrdering() {
+  asked = 0;
+  bound = comparisonBound(cycle.items.length);
+
+  if (cycle.items.length <= 1) {
+    cycle.orderedIds = cycle.items.map(it => it.id);
+    cycle.cursor = 0;
+    saveCycle();
+    renderToday();
+    show("today");
+    return;
+  }
+
+  show("order");
+  const sorted = await mergeSort(cycle.items.slice());
+  cycle.orderedIds = sorted.map(it => it.id);
+  cycle.cursor = 0;
+  saveCycle();
+  renderToday();
+  show("today");
+}
+
+/* ============================================================
+   3. today
+   ============================================================ */
+
+const todayBody = document.getElementById("today-body");
+const ledgerBody = document.getElementById("ledger-body");
+
+function itemById(id) { return cycle.items.find(it => it.id === id) || null; }
+
+function currentItem() {
+  if (!cycle || cycle.cursor >= cycle.orderedIds.length) return null;
+  return itemById(cycle.orderedIds[cycle.cursor]);
+}
+
+/* An item is settled once it is done, struck, or kept because it is blocked on
+   someone. Keeping is only reachable at the third deferral, so three deferrals
+   on a live item means "parked, waiting on a person" — nothing left to ask. */
+function settled(item) {
+  return !item || item.state !== "live" || item.deferrals.length >= 3;
+}
+
+/* The cursor wraps. A single forward pass would let every item be deferred at
+   most once, so the third-deferral rule below could never fire; the walk keeps
+   coming back to whatever is still open until it is done, struck or parked. */
+function nextOpen(from) {
+  const n = cycle.orderedIds.length;
+  for (let step = 1; step <= n; step++) {
+    const idx = (from + step) % n;
+    if (!settled(itemById(cycle.orderedIds[idx]))) return idx;
+  }
+  return n; // nothing open — the cycle is closed
+}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function advance() {
+  cycle.cursor = nextOpen(cycle.cursor);
+  saveCycle();
+  renderToday();
+}
+
+function renderToday() {
+  todayBody.textContent = "";
+
+  const item = currentItem();
+  if (item === null) { renderClosed(); }
+  else { renderItem(item); }
+
+  // A thrown error in the ledger must not white out the screen above it.
+  try { renderLedger(); }
+  catch (e) {
+    ledgerBody.textContent = "";
+    ledgerBody.appendChild(el("p", "empty", "The ledger could not be drawn."));
+  }
+}
+
+function renderItem(item) {
+  todayBody.appendChild(el("p", "eyebrow", "Today"));
+
+  const action = el("p", "action-line", item.action || item.title);
+  todayBody.appendChild(action);
+
+  if (item.blockedOn) {
+    todayBody.appendChild(el("p", "blocked", "Blocked on " + item.blockedOn));
+  }
+
+  const controls = el("div", "row");
+  controls.style.marginTop = "var(--s5)";
+
+  const done = el("button", "btn btn-primary", "Done");
+  done.addEventListener("click", () => {
+    item.state = "done";
+    advance();
+  });
+
+  const not = el("button", "btn", "Not today");
+  not.addEventListener("click", () => {
+    controls.remove();
+    todayBody.appendChild(reasonRow(item));
+  });
+
+  controls.appendChild(done);
+  controls.appendChild(not);
+  todayBody.appendChild(controls);
+}
+
+function reasonRow(item) {
+  const box = el("div");
+  box.style.marginTop = "var(--s5)";
+  box.appendChild(el("p", "eyebrow", "Why not"));
+
+  const row = el("div", "row");
+  ["Blocked", "No time", "Not real"].forEach(label => {
+    const b = el("button", "btn", label);
+    b.addEventListener("click", () => defer(item, label));
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+
+  const typed = el("div", "row");
+  typed.style.marginTop = "var(--s2)";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.setAttribute("aria-label", "Reason");
+  input.placeholder = "or type one";
+  input.style.flex = "1 1 12ch";
+  const ok = el("button", "btn", "Save");
+  ok.addEventListener("click", () => {
+    const v = input.value.trim();
+    if (v !== "") defer(item, v);
+  });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") ok.click(); });
+  typed.appendChild(input);
+  typed.appendChild(ok);
+  box.appendChild(typed);
+
+  return box;
+}
+
+async function defer(item, reason) {
+  item.deferrals.push({ date: new Date().toISOString(), reason: reason });
+  saveCycle();
+
+  // The rule that makes it work: the third deferral does not advance.
+  if (item.deferrals.length >= 3) { await confront(item); return; }
+  advance();
+}
+
+async function confront(item) {
+  todayBody.textContent = "";
+  todayBody.appendChild(el("p", "eyebrow", "Third deferral"));
+  todayBody.appendChild(el("p", "action-line", item.action || item.title));
+  const waiting = el("div", "verdict");
+  waiting.appendChild(el("p", null, "Reading the reasons…"));
+  todayBody.appendChild(waiting);
+
+  let out;
+  try {
+    out = parseVerdict(await ask(SYS_VERDICT, JSON.stringify({
+      title: item.title,
+      action: item.action,
+      blockedOn: item.blockedOn,
+      consequence: item.consequence,
+      deferrals: item.deferrals
+    }), 1000));
+  } catch (e) {
+    out = { verdict: "Deferred three times with no external blocker named.", recommend: "strike" };
+  }
+
+  todayBody.textContent = "";
+  todayBody.appendChild(el("p", "eyebrow", "Third deferral"));
+  todayBody.appendChild(el("p", "action-line", item.action || item.title));
+
+  const v = el("div", "verdict");
+  v.appendChild(el("p", null, out.verdict));
+  todayBody.appendChild(v);
+
+  const controls = el("div", "row");
+  controls.style.marginTop = "var(--s4)";
+
+  const strike = el("button", "btn btn-warn", "Strike it");
+  strike.addEventListener("click", () => {
+    item.state = "struck";
+    item.struckReason = out.verdict;
+    advance();
+  });
+
+  const keep = el("button", "btn", "Keep, it's blocked on someone");
+  keep.addEventListener("click", () => advance());
+
+  // There is no third option; the bias is toward striking.
+  if (out.recommend === "strike") { controls.appendChild(strike); controls.appendChild(keep); }
+  else { controls.appendChild(keep); controls.appendChild(strike); }
+
+  todayBody.appendChild(controls);
+}
+
+function renderClosed() {
+  const done = cycle.items.filter(i => i.state === "done").length;
+  const struck = cycle.items.filter(i => i.state === "struck").length;
+  const carried = cycle.items.filter(i => i.state === "live").length;
+
+  const box = el("div", "closed");
+  box.appendChild(el("p", null,
+    "Cycle closed. " + done + " done, " + struck + " struck, " + carried + " carried."));
+
+  const b = el("button", "btn btn-primary btn-block", "Start a new cycle");
+  b.addEventListener("click", () => {
+    const carriedItems = cycle.items.filter(i => i.state === "live");
+    archive.unshift(cycle);
+    write(K_ARCHIVE, archive);
+
+    cycle = null;
+    try { localStorage.removeItem(K_CYCLE); } catch (e) { /* ignore */ }
+
+    dumpText.value = carriedItems.map(i => i.action || i.title).join("\n");
+    banner(dumpBanner, "");
+    show("dump");
+    dumpText.focus();
+  });
+  box.appendChild(b);
+  todayBody.appendChild(box);
+}
+
+/* The ledger only ever gets shorter between resets. That is the point. */
+function renderLedger() {
+  ledgerBody.textContent = "";
+
+  if (!cycle || cycle.orderedIds.length === 0) {
+    ledgerBody.appendChild(el("p", "empty", "Nothing in this cycle. Start with a dump."));
+    return;
+  }
+
+  cycle.orderedIds.forEach((id, idx) => {
+    const item = itemById(id);
+    if (!item) return;
+
+    const row = el("div", "entry");
+    if (item.state !== "live") row.classList.add("ruled");
+    if (idx === cycle.cursor && item.state === "live") row.classList.add("at");
+
+    const line = el("span", "l");
+    line.appendChild(el("span", "n", String(idx + 1).padStart(2, "0")));
+    line.appendChild(document.createTextNode(item.title));
+    row.appendChild(line);
+
+    if (item.state === "struck" && item.struckReason) {
+      row.appendChild(el("span", "why", item.struckReason));
+    } else if (settled(item) && item.state === "live") {
+      row.appendChild(el("span", "why",
+        item.blockedOn ? "Kept — blocked on " + item.blockedOn : "Kept — blocked on someone"));
+    } else if (item.deferrals.length > 0) {
+      row.appendChild(el("span", "why",
+        item.deferrals.length + (item.deferrals.length === 1 ? " deferral" : " deferrals")));
+    }
+
+    ledgerBody.appendChild(row);
+  });
+}
+
+/* ============================================================
+   boot
+   ============================================================ */
+
+const keyInput = document.getElementById("key-input");
+document.getElementById("key-save").addEventListener("click", () => {
+  const v = keyInput.value.trim();
+  if (v === "") { keyInput.focus(); return; }
+  settings = { apiKey: v, createdAt: new Date().toISOString() };
+  write(K_SETTINGS, settings);
+  keyInput.value = "";
+  boot();
+});
+keyInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("key-save").click();
+});
+
+function boot() {
+  if (!settings || !settings.apiKey) { show("key"); return; }
+  if (cycle && Array.isArray(cycle.orderedIds) && cycle.orderedIds.length > 0) {
+    renderToday();
+    show("today");
+    return;
+  }
+  // A cycle with items but no order was abandoned mid-sort; order it again.
+  if (cycle && Array.isArray(cycle.items) && cycle.items.length > 0) { startOrdering(); return; }
+  show("dump");
+}
+
+boot();
+</script>
+</body>
+</html>
