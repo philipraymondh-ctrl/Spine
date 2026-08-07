@@ -37,6 +37,9 @@ async function newPage(ctx) {
     const body = JSON.parse(route.request().postData());
     calls.push({ headers: route.request().headers(), body });
     if (mode === "http500") return route.fulfill({ status: 500, body: "nope" });
+    if (mode === "unauthorized") return route.fulfill({ status: 401,
+      contentType: "application/json", body: JSON.stringify({ error: { type: "authentication_error" } }) });
+    if (mode === "hang") return new Promise(() => {});   // never resolves
     if (mode === "garbage")
       return route.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ content: [{ type: "text", text: "I'm afraid I can't do that." }] }) });
@@ -232,7 +235,7 @@ for (const failMode of ["http500", "garbage"]) {
   check("options are Strike it / Keep",
     btns.includes("Strike it") && btns.includes("Keep, it's blocked on someone"));
   check("verdict text is displayed",
-    (await page.locator(".verdict p").textContent()).includes("deferred this three times"));
+    (await page.locator(".verdict p:not(.rec)").textContent()).includes("deferred this three times"));
 
   await page.locator("button", { hasText: "Strike it" }).click();
   const struck = await page.evaluate(() =>
@@ -268,7 +271,7 @@ for (const failMode of ["http500", "garbage"]) {
   }
   await page.waitForSelector(".verdict", { timeout: 5000 });
   check("unparseable verdict falls back to the strike-biased default",
-    (await page.locator(".verdict p").textContent()).includes("no external blocker named"));
+    (await page.locator(".verdict p:not(.rec)").textContent()).includes("no external blocker named"));
   await ctx.close();
 }
 
@@ -394,6 +397,172 @@ for (const failMode of ["http500", "garbage"]) {
                                 ["no streaks", "streak"]]) {
     check(what, !src.includes(needle));
   }
+  await ctx.close();
+}
+
+// ===========================================================================
+// 9. v2 — a rejected key is not a failed extraction
+// ===========================================================================
+{
+  mode = "unauthorized"; itemCount = 5;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "sk-bad", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("something real I owe someone");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-key.on", { timeout: 5000 });
+
+  check("401 returns to the key screen, not the fallback",
+    await visible(page, "s-key"));
+  check("401 says the key was rejected",
+    (await page.locator("#key-banner .banner").textContent()).includes("rejected"));
+  const cleared = await page.evaluate(() => localStorage.getItem("spine.v1.settings"));
+  check("401 clears the bad key", cleared === null);
+
+  // The dump must survive the detour.
+  mode = "ok";
+  await page.locator("#key-input").fill("sk-good");
+  await page.locator("#key-save").click();
+  check("a good key returns to the dump", await visible(page, "s-dump"));
+  check("the dump survived the rejection",
+    (await page.locator("#dump-text").inputValue()) === "something real I owe someone");
+  check("the rejection banner clears", await page.locator("#key-banner .banner").count() === 0);
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on", { timeout: 5000 });
+  check("extraction proceeds on the replacement key", await visible(page, "s-order"));
+  await ctx.close();
+}
+
+// ===========================================================================
+// 10. v2 — a hung request must not strand the flow
+// ===========================================================================
+{
+  mode = "hang"; itemCount = 5;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => {
+    localStorage.setItem("spine.v1.settings", JSON.stringify({ apiKey: "k", createdAt: "x" }));
+  });
+  await page.goto(URLBASE);
+  // Shorten the clock so the test does not wait 90s for the real one.
+  await page.evaluate(() => {
+    const real = window.ask;
+    window.ask = (sys, user, max) => real(sys, user, max, 400);
+  });
+  await page.locator("#dump-text").fill("alpha\nbravo");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on", { timeout: 8000 });
+  check("a hung request times out and falls back", await visible(page, "s-order"));
+  const btn = await page.locator("#dump-go").textContent();
+  check("the extract button is released after a timeout", btn === "Extract items");
+  await answerOrdering(page);
+  check("timeout shows the extraction-failed banner",
+    (await page.locator("#today-banner .banner").textContent()).includes("Extraction failed"));
+  await ctx.close();
+}
+
+// ===========================================================================
+// 11. v2 — cycle is never destroyed when the archive write fails
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("the only thing");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on");
+  await page.locator("#today-body button", { hasText: "Done" }).click();
+  await page.waitForSelector(".closed");
+
+  // Simulate a full quota on the archive key only.
+  await page.evaluate(() => {
+    window.__realSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) {
+      const real = window.__realSetItem;
+      if (k === "spine.v1.archive") { const e = new Error("QuotaExceededError"); e.name = "QuotaExceededError"; throw e; }
+      return real.call(this, k, v);
+    };
+  });
+  await page.locator("button", { hasText: "Start a new cycle" }).click();
+
+  const survived = await page.evaluate(() => localStorage.getItem("spine.v1.cycle"));
+  check("a failed archive write does NOT delete the cycle", survived !== null);
+  check("the storage failure is reported",
+    (await page.locator("#today-banner .banner").textContent()).includes("not archived"));
+  check("still on Today, cycle left open", await visible(page, "s-today"));
+
+  // And it recovers once storage works again.
+  await page.evaluate(() => { Storage.prototype.setItem = window.__realSetItem; });
+  await page.locator("button", { hasText: "Start a new cycle" }).click();
+  check("closing succeeds once storage recovers", await visible(page, "s-dump"));
+  const arch = await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.archive")));
+  check("archive holds exactly one copy of the cycle", arch.length === 1, "len " + arch.length);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 12. v2 — confrontation buttons hold position; double-tap counts once
+// ===========================================================================
+for (const rec of ["strike", "keep"]) {
+  mode = "ok"; itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.route("**/api.anthropic.com/**", async route => {
+    const body = JSON.parse(route.request().postData());
+    if (body.max_tokens === 1000)
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        content: [{ type: "text", text: JSON.stringify({ verdict: "Two sentences.", recommend: rec }) }] }) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify(ITEMS.slice(0, 1)) }] }) });
+  });
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("one obligation");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on");
+  for (let n = 0; n < 3; n++) {
+    await page.locator("#today-body button", { hasText: "Not today" }).click();
+    await page.locator("#today-body button", { hasText: "No time" }).click();
+    await page.waitForTimeout(30);
+  }
+  await page.waitForSelector(".verdict", { timeout: 5000 });
+  const order = await page.locator("#today-body .row button").allTextContents();
+  check("[recommend=" + rec + "] Strike it is always first",
+    order[0] === "Strike it" && order[1] === "Keep, it's blocked on someone", JSON.stringify(order));
+  check("[recommend=" + rec + "] recommendation shown as text, not by position",
+    (await page.locator(".verdict .rec").textContent()).length > 0);
+  const count = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("spine.v1.cycle")).items[0].deferrals.length);
+  check("[recommend=" + rec + "] exactly three deferrals recorded", count === 3, "got " + count);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 13. v2 — unfence keeps backticks that belong to the content
+// ===========================================================================
+{
+  itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.route("**/api.anthropic.com/**", route => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ content: [{ type: "text",
+      text: "```json\n" + JSON.stringify([{ title: "Ship it", action: "Run ```npm test``` and ship",
+        blockedOn: "", consequence: "The release slips." }]) + "\n```" }] }) }));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("ship");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 5000 });
+  const action = await page.locator(".action-line").textContent();
+  check("fenced payload parses and inner backticks survive",
+    action === "Run ```npm test``` and ship", action);
   await ctx.close();
 }
 

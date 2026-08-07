@@ -213,6 +213,13 @@ textarea { resize: vertical; line-height: 1.6; }
   margin: var(--s4) 0 var(--s3);
 }
 .verdict p { margin: 0; }
+.verdict .rec {
+  margin-top: var(--s2);
+  font-size: var(--t-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
 
 /* ---------- the ledger ---------- */
 
@@ -275,6 +282,7 @@ textarea { resize: vertical; line-height: 1.6; }
   <!-- ============ key ============ -->
   <section id="s-key" class="screen">
     <p class="eyebrow">Spine</p>
+    <div id="key-banner"></div>
     <h1 style="font-size:var(--t-lg);margin-bottom:var(--s3)">Paste your Anthropic API key. It stays on this device.</h1>
     <input type="password" id="key-input" autocomplete="off" spellcheck="false" aria-label="Anthropic API key">
     <div style="margin-top:var(--s3)">
@@ -304,7 +312,7 @@ textarea { resize: vertical; line-height: 1.6; }
   <!-- ============ 3. today ============ -->
   <section id="s-today" class="screen">
     <div id="today-banner"></div>
-    <div class="today" id="today-body"></div>
+    <div class="today" id="today-body" aria-live="polite"></div>
     <div class="ledger">
       <h2>Ledger</h2>
       <div id="ledger-body"></div>
@@ -335,8 +343,11 @@ function read(key, fallback) {
     return fallback;
   }
 }
+/* Returns false when the write did not land. Callers that are about to delete
+   the thing they just wrote MUST check it — see the cycle-close handler. */
 function write(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota; keep going */ }
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch (e) { return false; }
 }
 
 let settings = read(K_SETTINGS, null);
@@ -361,6 +372,9 @@ const screens = {
   today: document.getElementById("s-today")
 };
 
+const keyBanner = document.getElementById("key-banner");
+const todayBanner = document.getElementById("today-banner");
+
 function show(name) {
   for (const k in screens) screens[k].classList.toggle("on", k === name);
   window.scrollTo(0, 0);
@@ -380,31 +394,51 @@ function banner(el, text) {
    the model — one call path, never blocking the flow
    ============================================================ */
 
-async function ask(system, user, maxTokens) {
-  const res = await fetch(API, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": settings.apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system: system,
-      messages: [{ role: "user", content: user }]
-    })
-  });
-  if (!res.ok) throw new Error("http " + res.status);
-  const data = await res.json();
-  const block = (data.content || []).find(b => b && b.type === "text");
-  if (!block) throw new Error("no text");
-  return block.text;
+/* A hung connection must not strand the flow, so every call is on a clock.
+   Errors carry .status so a rejected key can be told apart from a bad day. */
+async function ask(system, user, maxTokens, timeoutMs) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const res = await fetch(API, {
+      method: "POST",
+      signal: ctl.signal,
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": settings.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system: system,
+        messages: [{ role: "user", content: user }]
+      })
+    });
+    if (!res.ok) {
+      const err = new Error("http " + res.status);
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    const block = (data.content || []).find(b => b && b.type === "text");
+    if (!block) throw new Error("no text");
+    return block.text;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
+const rejectedKey = e => e && (e.status === 401 || e.status === 403);
+
+/* Only strip fences at the boundaries — a consequence may legitimately quote
+   one, and a global strip would silently eat it. */
 function unfence(text) {
-  return String(text).replace(/```(?:json)?/gi, "").trim();
+  return String(text).trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
 }
 
 const SYS_EXTRACT =
@@ -504,8 +538,20 @@ dumpGo.addEventListener("click", async () => {
   let items = [];
   let failed = false;
   try {
-    items = parseExtraction(await ask(SYS_EXTRACT, raw, 4000));
+    items = parseExtraction(await ask(SYS_EXTRACT, raw, 4000, 90000));
   } catch (e) {
+    // A rejected key is not a bad extraction. Say which one it is, and send
+    // them to the one screen that can fix it — with the dump still in place.
+    if (rejectedKey(e)) {
+      dumpGo.disabled = false;
+      dumpGo.textContent = "Extract items";
+      settings = null;
+      try { localStorage.removeItem(K_SETTINGS); } catch (err) { /* ignore */ }
+      banner(keyBanner, "That key was rejected. Paste a working one — your dump is still here.");
+      show("key");
+      keyInput.focus();
+      return;
+    }
     failed = true;
   }
   if (items.length === 0) { items = fallbackSplit(raw); failed = true; }
@@ -517,7 +563,7 @@ dumpGo.addEventListener("click", async () => {
   cycle = { id: now.slice(0, 10), startedAt: now, items: items, orderedIds: [], cursor: 0 };
   saveCycle();
 
-  banner(document.getElementById("today-banner"),
+  banner(todayBanner,
     failed ? "Extraction failed. Items are raw — fill in the next action yourself." : "");
 
   dumpText.value = "";
@@ -732,13 +778,23 @@ function reasonRow(item) {
   return box;
 }
 
-async function defer(item, reason) {
-  item.deferrals.push({ date: new Date().toISOString(), reason: reason });
-  saveCycle();
+// A double-tap must not count twice: two deferrals from one intent can jump an
+// item from its first straight past its third, or fire two verdict calls.
+let deferring = false;
 
-  // The rule that makes it work: the third deferral does not advance.
-  if (item.deferrals.length >= 3) { await confront(item); return; }
-  advance();
+async function defer(item, reason) {
+  if (deferring) return;
+  deferring = true;
+  try {
+    item.deferrals.push({ date: new Date().toISOString(), reason: reason });
+    saveCycle();
+
+    // The rule that makes it work: the third deferral does not advance.
+    if (item.deferrals.length >= 3) { await confront(item); return; }
+    advance();
+  } finally {
+    deferring = false;
+  }
 }
 
 async function confront(item) {
@@ -757,9 +813,10 @@ async function confront(item) {
       blockedOn: item.blockedOn,
       consequence: item.consequence,
       deferrals: item.deferrals
-    }), 1000));
+    }), 1000, 45000));
   } catch (e) {
     out = { verdict: "Deferred three times with no external blocker named.", recommend: "strike" };
+    if (rejectedKey(e)) banner(todayBanner, "That API key was rejected. The verdict below is the default.");
   }
 
   todayBody.textContent = "";
@@ -768,6 +825,8 @@ async function confront(item) {
 
   const v = el("div", "verdict");
   v.appendChild(el("p", null, out.verdict));
+  v.appendChild(el("p", "rec", out.recommend === "keep"
+    ? "Reads as genuinely blocked." : "Reads as not a commitment."));
   todayBody.appendChild(v);
 
   const controls = el("div", "row");
@@ -783,9 +842,12 @@ async function confront(item) {
   const keep = el("button", "btn", "Keep, it's blocked on someone");
   keep.addEventListener("click", () => advance());
 
-  // There is no third option; the bias is toward striking.
-  if (out.recommend === "strike") { controls.appendChild(strike); controls.appendChild(keep); }
-  else { controls.appendChild(keep); controls.appendChild(strike); }
+  // Fixed order, always. This is the highest-stakes click in the app, and
+  // buttons that move under the cursor are a mis-click generator — striking a
+  // real commitment or keeping a fake one. The recommendation is carried by
+  // the line above, not by position. There is no third option.
+  controls.appendChild(strike);
+  controls.appendChild(keep);
 
   todayBody.appendChild(controls);
 }
@@ -802,14 +864,26 @@ function renderClosed() {
   const b = el("button", "btn btn-primary btn-block", "Start a new cycle");
   b.addEventListener("click", () => {
     const carriedItems = cycle.items.filter(i => i.state === "live");
-    archive.unshift(cycle);
-    write(K_ARCHIVE, archive);
+    const closing = cycle;
+
+    // Never delete the cycle before the archive write has actually landed.
+    // localStorage throws on quota, and swallowing that here destroyed the
+    // one artefact this whole tool exists to accumulate.
+    archive.unshift(closing);
+    if (!write(K_ARCHIVE, archive)) {
+      archive.shift();
+      banner(todayBanner,
+        "Out of storage — this cycle was not archived, so it has been left open. " +
+        "Free some space and try again.");
+      return;
+    }
 
     cycle = null;
     try { localStorage.removeItem(K_CYCLE); } catch (e) { /* ignore */ }
 
     dumpText.value = carriedItems.map(i => i.action || i.title).join("\n");
     banner(dumpBanner, "");
+    banner(todayBanner, "");
     show("dump");
     dumpText.focus();
   });
@@ -862,8 +936,12 @@ document.getElementById("key-save").addEventListener("click", () => {
   const v = keyInput.value.trim();
   if (v === "") { keyInput.focus(); return; }
   settings = { apiKey: v, createdAt: new Date().toISOString() };
-  write(K_SETTINGS, settings);
+  if (!write(K_SETTINGS, settings)) {
+    banner(keyBanner, "Could not save the key — this browser is out of storage.");
+    return;
+  }
   keyInput.value = "";
+  banner(keyBanner, "");
   boot();
 });
 keyInput.addEventListener("keydown", e => {
