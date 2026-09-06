@@ -59,6 +59,18 @@ unreachable — see `docs/DECISIONS.md`. A cycle ends when every item is done,
 struck, or kept-because-blocked, which bounds it at three passes and makes
 "carried" mean *blocked on a person* and nothing else.
 
+### Adding something mid-cycle
+
+A week is long and things arrive. **Something new** on Today reuses the dump
+screen, then places the newcomer by **binary search against what is already
+there** — roughly four questions for a spine of twelve, and no pair that has
+already been decided is ever asked again. Nothing already ranked moves, and
+today's action does not change under your hands; the new item takes effect from
+the next advance.
+
+That is the line: you may place a new thing once, and then it is as fixed as
+everything else. What you may not do is move anything to accommodate it.
+
 ## Where the model is load-bearing
 
 Exactly one place: turning a week's ambient prose into discrete units that each
@@ -102,7 +114,8 @@ why, not only what was built. `research/lab.mjs` reproduces any session.
 
 ## Deliberately not built
 
-Editing the order after it is set (this is the entire mechanism) · calendar or
+Editing the order after it is set (this is the entire mechanism — placing a
+*new* item by binary search is not editing, since no decided pair is re-asked) · calendar or
 reminder sync · more than one live cycle · tags, projects, areas, or any second
 axis of organisation · search, or any view of the archive beyond the current
 cycle · streaks, counts, or any number that rewards volume · a fourth screen ·

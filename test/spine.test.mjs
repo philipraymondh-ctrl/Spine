@@ -824,8 +824,8 @@ for (const rec of ["strike", "keep"]) {
     await page.locator("#today-body[aria-live='polite']").count() === 1);
 
   await page.locator("#today-body button", { hasText: "Not today" }).click();
-  check("the reason row offers a way out", await page.locator(".btn-link").count() === 1);
-  await page.locator(".btn-link").click();
+  check("the reason row offers a way out", await page.locator("#today-body .btn-link").count() === 1);
+  await page.locator("#today-body .btn-link").click();
   check("backing out writes no reason",
     (await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.cycle"))
       .items.every(i => i.deferrals.length === 0))));
@@ -855,6 +855,116 @@ for (const rec of ["strike", "keep"]) {
   });
   check("dark mode actually inverts the ledger stock", dark.bg !== "rgb(220, 226, 219)", dark.bg);
   check("body text still passes AA in the dark", dark.ratio >= 4.5, dark.ratio.toFixed(2) + ":1");
+  await ctx.close();
+}
+
+// ===========================================================================
+// 21. v3.1 — adding to a live spine places by binary search, moving nothing
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 8;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("a week of things");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on");
+  const rankCost = await answerOrdering(page);
+
+  const titles = () => page.evaluate(() => {
+    const c = JSON.parse(localStorage.getItem("spine.v1.cycle"));
+    return c.orderedIds.map(id => c.items.find(i => i.id === id).title);
+  });
+  const before = await titles();
+  const todayWas = await page.locator(".action-line").textContent();
+
+  check("Today offers a way to add something new",
+    await page.locator("button", { hasText: "Something new" }).count() === 1);
+  await page.locator("button", { hasText: "Something new" }).click();
+  check("adding reuses the dump screen, not a fourth screen", await visible(page, "s-dump"));
+  check("it promises nothing already ranked will move",
+    (await page.locator("#dump-banner .banner").textContent()).includes("Nothing already ranked will move"));
+
+  // Backing out must be possible and must change nothing.
+  await page.locator("#dump-cancel .btn-link").click();
+  check("you can back out of adding", await visible(page, "s-today"));
+  check("backing out changes nothing", JSON.stringify(await titles()) === JSON.stringify(before));
+
+  await page.locator("button", { hasText: "Something new" }).click();
+  await page.route("**/api.anthropic.com/**", r => r.fulfill({ status: 200,
+    contentType: "application/json", body: JSON.stringify({ content: [{ type: "text",
+      text: JSON.stringify([{ title: "Server on fire", action: "Page the on-call engineer",
+        blockedOn: "", consequence: "Customers are down." }]) }] }) }));
+  await page.locator("#dump-text").fill("prod is down");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on", { timeout: 8000 });
+
+  const label = await page.locator("#order-progress").textContent();
+  check("the placing screen says it is placing", label.startsWith("Placing"), label);
+
+  const seen = [];
+  let asked = 0;
+  while (await page.locator("#s-order").evaluate(x => x.classList.contains("on"))) {
+    seen.push(await page.locator("#pick-b .t").textContent());
+    check("the newcomer is always one side of the comparison",
+      (await page.locator("#pick-a .t").textContent()) === "Server on fire");
+    await page.locator("#pick-a").click(); asked++;
+    await page.waitForTimeout(20);
+    if (asked > 20) break;
+  }
+
+  check("placing costs log2(n) choices, not n",
+    asked <= Math.ceil(Math.log2(before.length + 1)), asked + " for " + before.length + " items");
+  check("placing is far cheaper than the original ranking", asked < rankCost,
+    asked + " vs " + rankCost);
+  check("no incumbent is compared twice", new Set(seen).size === seen.length, JSON.stringify(seen));
+
+  const after = await titles();
+  check("the newcomer is in the spine", after.includes("Server on fire"));
+  check("every existing item keeps its relative order",
+    JSON.stringify(after.filter(t => t !== "Server on fire")) === JSON.stringify(before));
+  check("today's item is not changed under your hands",
+    (await page.locator(".action-line").textContent()) === todayWas);
+  check("the placement is confirmed",
+    (await page.locator("#today-banner .banner").textContent()).includes("Nothing already ranked moved"));
+  await ctx.close();
+}
+
+// ===========================================================================
+// 22. v3.1 — adding when there is nothing to compare against
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("one thing");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  await page.locator("#today-body button", { hasText: "Done" }).click();   // nothing live left
+  check("a closed cycle still offers no add control",
+    await page.locator("button", { hasText: "Something new" }).count() === 0);
+  await ctx.close();
+}
+{
+  mode = "ok"; itemCount = 2;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("a\nb");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on");
+  await answerOrdering(page);
+  await deferOnce(page, "No time");
+  await deferOnce(page, "No time");
+  check("the day-done state can still capture something new",
+    await page.locator("button", { hasText: "Something new" }).count() === 1);
   await ctx.close();
 }
 

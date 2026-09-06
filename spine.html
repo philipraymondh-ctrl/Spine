@@ -249,7 +249,7 @@ textarea { resize: vertical; line-height: 1.6; }
 
 .row-wide { gap: var(--s4); }
 
-.btn-link {
+.btn-link, .add-new {
   display: inline-block;
   margin-top: var(--s3);
   min-height: 44px;
@@ -384,13 +384,14 @@ textarea { resize: vertical; line-height: 1.6; }
 
   <!-- ============ 1. dump ============ -->
   <section id="s-dump" class="screen">
-    <p class="eyebrow">Dump</p>
+    <p class="eyebrow" id="dump-eyebrow">Dump</p>
     <div id="dump-banner"></div>
     <textarea id="dump-text" aria-label="Everything you're carrying"
       placeholder="Everything you're carrying. Prose, fragments, half-sentences. Don't organise it."></textarea>
     <div style="margin-top:var(--s3)">
       <button class="btn btn-primary btn-block" id="dump-go">Extract items</button>
     </div>
+    <div id="dump-cancel"></div>
   </section>
 
   <!-- ============ 2. order ============ -->
@@ -489,6 +490,8 @@ const screens = {
 const keyBanner = document.getElementById("key-banner");
 const todayBanner = document.getElementById("today-banner");
 const ledgerCount = document.getElementById("ledger-count");
+const dumpEyebrow = document.getElementById("dump-eyebrow");
+const dumpCancel = document.getElementById("dump-cancel");
 
 function show(name) {
   for (const k in screens) screens[k].classList.toggle("on", k === name);
@@ -647,6 +650,40 @@ function parseVerdict(text) {
    1. dump
    ============================================================ */
 
+let addMode = false;
+
+function startAdd() {
+  addMode = true;
+  dumpText.value = "";
+  dumpEyebrow.textContent = "Something new";
+  dumpText.placeholder = "What came up? One thing or several.";
+  dumpGo.textContent = "Place it in the spine";
+  banner(dumpBanner,
+    "Nothing already ranked will move. You will answer a few questions to place this against what is there.");
+  // Changing your mind must not strand you on a screen with no exit.
+  dumpCancel.textContent = "";
+  const back = el("button", "btn-link", "Never mind");
+  back.addEventListener("click", () => {
+    leaveAddMode();
+    dumpText.value = "";
+    banner(dumpBanner, "");
+    show("today");
+    renderToday();
+  });
+  dumpCancel.appendChild(back);
+
+  show("dump");
+  dumpText.focus();
+}
+
+function leaveAddMode() {
+  addMode = false;
+  dumpCancel.textContent = "";
+  dumpEyebrow.textContent = "Dump";
+  dumpText.placeholder = "Everything you're carrying. Prose, fragments, half-sentences. Don't organise it.";
+  dumpGo.textContent = "Extract items";
+}
+
 const dumpText = document.getElementById("dump-text");
 const dumpGo = document.getElementById("dump-go");
 const dumpBanner = document.getElementById("dump-banner");
@@ -686,7 +723,7 @@ dumpGo.addEventListener("click", async () => {
   }
   if (empty) {
     dumpGo.disabled = false;
-    dumpGo.textContent = "Extract items";
+    dumpGo.textContent = addMode ? "Place it in the spine" : "Extract items";
     banner(dumpBanner, "No obligations found in that. Nothing has been lost — add more, or reword it.");
     dumpText.focus();
     return;
@@ -709,7 +746,20 @@ dumpGo.addEventListener("click", async () => {
   }
 
   dumpGo.disabled = false;
-  dumpGo.textContent = "Extract items";
+  dumpGo.textContent = addMode ? "Place it in the spine" : "Extract items";
+
+  // Adding to a live spine: place the newcomers, leave everything else alone.
+  if (addMode && cycle && cycle.orderedIds.length) {
+    const fresh = items;
+    dumpText.value = "";
+    leaveAddMode();
+    banner(dumpBanner, "");
+    banner(todayBanner, failed
+      ? "Extraction failed. The new items are raw — fill in the next action yourself." : "");
+    await insertItems(fresh);
+    return;
+  }
+  leaveAddMode();
 
   const now = new Date().toISOString();
   cycle = { id: now.slice(0, 10), startedAt: now, items: items, orderedIds: [], cursor: 0, confrontingId: null };
@@ -739,6 +789,7 @@ const orderProgress = document.getElementById("order-progress");
 let pending = null;   // resolve fn for the comparison in flight
 let asked = 0;
 let bound = 0;
+let orderLabel = "Choice";   // "Choice" while ranking a cycle, "Placing" while inserting
 
 // Merge sort's comparison count is data-dependent; this is its ceiling,
 // so the walk can finish early but never overrun the stated total.
@@ -755,7 +806,7 @@ function paint(btn, item) {
 
 function compare(a, b) {
   return new Promise(resolve => {
-    orderProgress.textContent = "Choice " + (asked + 1) + " of up to " + bound;
+    orderProgress.textContent = orderLabel + " " + (asked + 1) + " of up to " + bound;
     paint(pickA, a);
     paint(pickB, b);
     pending = resolve;
@@ -792,6 +843,7 @@ async function mergeSort(list) {
 
 async function startOrdering() {
   asked = 0;
+  orderLabel = "Choice";
   bound = comparisonBound(cycle.items.length);
 
   if (cycle.items.length <= 1) {
@@ -810,6 +862,59 @@ async function startOrdering() {
   saveCycle();
   show("today");
   renderToday();
+}
+
+/* ============================================================
+   adding to a live spine — binary insertion
+   ============================================================ */
+
+/* A week is long and things arrive. Ranking a newcomer against everything
+   would be re-ranking, which is the one thing this refuses — so the newcomer
+   is placed by binary search against what is already there, and no pair that
+   has already been decided is ever asked again. Nothing already ranked moves. */
+async function insertItems(fresh) {
+  // Today's item does not change. You committed to it this morning; a new
+  // arrival takes effect from the next advance, not under your hands.
+  const pinnedId = cycle.orderedIds[cycle.cursor] || null;
+
+  const liveNow = () => cycle.orderedIds.filter(id => !settled(itemById(id)));
+
+  asked = 0;
+  orderLabel = "Placing";
+  bound = fresh.reduce((t, _, i) => t + Math.ceil(Math.log2(liveNow().length + i + 1)) , 0) || 1;
+
+  for (const item of fresh) {
+    cycle.items.push(item);
+    const live = liveNow().filter(id => id !== item.id);
+
+    let lo = 0, hi = live.length;
+    if (hi > 0) {
+      show("order");
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        // -1 means the newcomer hurts more, so it sorts above the incumbent.
+        if (await compare(item, itemById(live[mid])) <= 0) hi = mid; else lo = mid + 1;
+      }
+    }
+
+    const at = lo < live.length
+      ? cycle.orderedIds.indexOf(live[lo])
+      : cycle.orderedIds.length;
+    cycle.orderedIds.splice(at, 0, item.id);
+  }
+
+  // Keep the cursor on whatever it was already pointing at.
+  if (pinnedId && cycle.orderedIds.includes(pinnedId)) {
+    cycle.cursor = cycle.orderedIds.indexOf(pinnedId);
+  }
+  if (!availableNow(currentItem())) cycle.cursor = nextOpen(-1);
+
+  saveCycle();
+  show("today");
+  renderToday();
+  banner(todayBanner, fresh.length === 1
+    ? "Placed. Nothing already ranked moved."
+    : fresh.length + " placed. Nothing already ranked moved.");
 }
 
 /* ============================================================
@@ -939,6 +1044,10 @@ function renderItem(item) {
   controls.appendChild(done);
   controls.appendChild(not);
   todayBody.appendChild(controls);
+
+  const add = el("button", "add-new", "Something new");
+  add.addEventListener("click", startAdd);
+  todayBody.appendChild(add);
   h.focus();
 }
 
@@ -953,6 +1062,10 @@ function renderDayDone() {
   todayBody.appendChild(el("p", "because",
     n + (n === 1 ? " thread is still open" : " threads are still open") +
     ". You deferred them today; they come back tomorrow."));
+
+  const add = el("button", "add-new", "Something new");
+  add.addEventListener("click", startAdd);
+  todayBody.appendChild(add);
   h.focus();
 }
 

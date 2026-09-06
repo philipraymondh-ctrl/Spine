@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.1.0 — adding to a live spine
+
+A week is long and obligations arrive mid-cycle. Until now they had nowhere to
+go until the next reset, which meant keeping a shadow list — and a shadow list
+defeats the tool completely.
+
+**Something new** on Today reuses the dump screen, then places the newcomer by
+binary search against the live spine: ~4 questions for 12 items rather than 12.
+The invariant holds exactly — no pair that has already been decided is ever
+re-asked, no existing item changes position relative to any other, and today's
+action does not change under your hands.
+
+Rejected alternatives, for the record: appending at the bottom always (an
+urgent newcomer sits under everything and you resent it), and re-ranking the
+whole cycle (which is the thing this refuses).
+
+Also: an exit from the add screen, so changing your mind is possible.
+
+Suite: 138 checks, up from 120.
+
 ## v3.0.0 — 30-user research
 
 Five cohorts of six simulated personas drove the real app in a real browser.
