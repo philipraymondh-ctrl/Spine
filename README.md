@@ -36,16 +36,22 @@ A linear flow that returns to screen 3. Not a tab bar.
 2. **Order** — pairwise forced choice: *which one hurts more if it slips?*
    Merge-sorted, so the number of choices is ~n·log n rather than n².
    No back button. Reversing here is the behaviour the tool exists to prevent.
-3. **Today** — one item, one action, two buttons. Below the fold, the ledger:
-   every item in the cycle, done and struck ones ruled through and still
-   visible. It only ever gets shorter between resets.
+3. **Today** — one item, one action, two buttons. The action owns the screen;
+   the ledger is below it, holding every item in the cycle. Done takes a tick,
+   struck takes the red rule, kept takes a margin rule and the name of whoever
+   is holding it. Nothing is ever removed.
 
 ### The rule that makes it work
 
-On the **third** deferral of the same item the walk does not advance. The model
-is asked whether this is a real commitment or a genuine external block, and
-there are two buttons: **Strike it** or **Keep, it's blocked on someone**. There
-is no third option, and the bias is toward striking.
+An item can be deferred **once per day**. On the **third** deferral — so the
+third day at the earliest — the walk does not advance. The model is asked
+whether this is a real commitment or a genuine external block, and there are two
+buttons: **Strike it** or **Keep, it's blocked on someone**. There is no third
+option, the bias is toward striking, and Keep costs you a name.
+
+The confrontation is written to storage before the model is called, so it
+cannot be escaped by reloading. Deferral history rides across cycle boundaries,
+so nothing dodges the wall by waiting for a reset.
 
 The cursor therefore **wraps** over whatever is still open. A single forward pass
 would let every item be deferred at most once, which would make the rule above
@@ -71,8 +77,11 @@ Three `localStorage` keys, version-prefixed. A schema change is a drop and reset
 
 ```
 spine.v1.settings  → { apiKey, createdAt }
-spine.v1.cycle     → { id, startedAt, items[], orderedIds[], cursor }
+spine.v1.cycle     → { id, startedAt, items[], orderedIds[], cursor, confrontingId }
 spine.v1.archive   → [ Cycle, ... ]   // closed cycles, newest first
+spine.v1.carried   → [ { action, deferrals[], blockedOn } ]   // history across a reset
+
+Item state is one of live | done | struck | kept.
 ```
 
 ## Tests
@@ -84,6 +93,12 @@ page in a real browser.
 npm install
 npm test
 ```
+
+## Research
+
+`research/` holds a 30-persona UX and accessibility study: the plan, the raw
+findings per cohort, and `ASSESSMENT.md` — which records what was refused and
+why, not only what was built. `research/lab.mjs` reproduces any session.
 
 ## Deliberately not built
 

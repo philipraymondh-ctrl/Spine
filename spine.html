@@ -15,7 +15,7 @@
   --bg:      #DCE2DB;
   --surface: #EDF0EA;
   --ink:     #1F2A24;
-  --ink-dim: #5D6C60;
+  --ink-dim: #4F5D52;   /* 5.24:1 on --bg; was #5D6C60 at 4.22:1, failing AA */
   --accent:  #26507E;
   --warn:    #8C3A2B;
 
@@ -28,8 +28,31 @@
   --s4: 24px; --s5: 40px; --s6: 64px;
 
   --radius: 2px;
-  --line: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  --line: 1px solid var(--rule);
   --measure: 68ch;
+
+  /* Control boundaries were 1.14-1.58:1 — nothing said where a button began. */
+  --edge: #8E978F;      /* 3.03:1 on --bg, meets 1.4.11 for non-text contrast */
+  --rule: color-mix(in srgb, var(--ink) 12%, transparent);
+
+  --strike-weight: 2px;
+  --strike-tilt: -0.8deg;
+  --strike-color: var(--warn);
+}
+
+/* The ritual is meant to run at the start and end of a day. Light-only made
+   the evening half of that hostile. Same ledger, lower lamp. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:      #1A211C;
+    --surface: #222A24;
+    --ink:     #E4EAE2;
+    --ink-dim: #9EAAA0;
+    --accent:  #8FB6E0;
+    --warn:    #E08A72;
+    --edge:    #67736A;
+    --rule: color-mix(in srgb, var(--ink) 18%, transparent);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -39,7 +62,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 
-html { background: var(--bg); }
+html { background: var(--bg); color-scheme: light dark; }
 
 body {
   background: var(--bg);
@@ -103,7 +126,7 @@ button, input, textarea {
   min-height: 44px;
   padding: var(--s2) var(--s4);
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   cursor: pointer;
   font-size: var(--t-md);
@@ -119,7 +142,7 @@ button, input, textarea {
 }
 .btn-primary:hover { background: color-mix(in srgb, #000 12%, var(--accent)); }
 
-.btn-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.btn-warn { color: var(--warn); border-color: var(--warn); }
 
 .btn-block { display: flex; width: 100%; }
 
@@ -133,7 +156,7 @@ button, input, textarea {
 input[type="text"], input[type="password"], textarea {
   width: 100%;
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   padding: var(--s2) var(--s3);
   min-height: 44px;
@@ -163,7 +186,7 @@ textarea { resize: vertical; line-height: 1.6; }
   width: 100%;
   text-align: left;
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   padding: var(--s3);
   margin-bottom: var(--s2);
@@ -186,9 +209,15 @@ textarea { resize: vertical; line-height: 1.6; }
 
 /* ---------- screen 3: today ---------- */
 
+/* v2 used min-height:42dvh, so on any normal desktop the whole ledger sat in
+   the first screen and the "one thing on an empty page" idea did not exist.
+   The action must own the viewport; the ledger is reached by scrolling. */
 .today {
-  min-height: 42dvh;
-  padding-top: var(--s5);
+  min-height: calc(100dvh - var(--s6));
+  padding-top: 12dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .action-line {
@@ -198,6 +227,39 @@ textarea { resize: vertical; line-height: 1.6; }
   line-height: 1.15;
   margin: 0;
   overflow-wrap: break-word;
+}
+
+/* The consequence: the model's headline output, previously collected and never
+   shown. It is the evidence for the order the user is being asked to trust. */
+.because {
+  font-size: var(--t-md);
+  color: var(--ink-dim);
+  margin: var(--s3) 0 0;
+  max-width: 46ch;
+}
+
+.count {
+  font-family: var(--font-body);
+  font-size: var(--t-xs);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-dim);
+  margin-left: var(--s2);
+}
+
+.row-wide { gap: var(--s4); }
+
+.btn-link {
+  display: inline-block;
+  margin-top: var(--s3);
+  min-height: 44px;
+  padding: var(--s2) 0;
+  background: none;
+  border: 0;
+  color: var(--ink-dim);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: var(--t-sm);
 }
 
 .blocked {
@@ -234,12 +296,27 @@ textarea { resize: vertical; line-height: 1.6; }
   margin-bottom: var(--s2);
 }
 
+.entries { list-style: none; margin: 0; padding: 0; }
+
 .entry {
   position: relative;
   padding: var(--s2) 0;
   border-bottom: var(--line);
   font-size: var(--t-sm);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--s3);
 }
+.entry .l { grid-column: 1; }
+.entry .state {
+  grid-column: 2;
+  align-self: start;
+  font-size: var(--t-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.entry .why { grid-column: 1 / -1; }
 .entry .n {
   color: var(--ink-dim);
   font-variant-numeric: tabular-nums;
@@ -253,17 +330,32 @@ textarea { resize: vertical; line-height: 1.6; }
 }
 .entry.at { color: var(--accent); }
 
-/* The signature: the strike stays on the page forever. */
-.entry.ruled > .l { position: relative; color: var(--ink-dim); }
-.entry.ruled > .l::after {
-  content: "";
-  position: absolute;
-  left: -2px; right: -2px; top: 50%;
-  height: 2px;
-  background: var(--warn);
-  transform: rotate(-0.4deg);
-  pointer-events: none;
+/* Three settled states, three different marks. v2 gave done and struck the
+   same red rule, so a finished week and a collapsed one were the same page —
+   and the product's claim that what you kept stays as legible as what you
+   struck was contradicted by its own ledger. */
+.entry.ruled > .l { color: var(--ink-dim); }
+
+/* Done: settled, quiet, ticked. No correction mark — nothing was corrected. */
+.entry.is-done > .l::before { content: "\2713\00a0"; color: var(--accent); }
+
+/* Struck: the signature. Correction red, ruled through, at an angle. Drawn as
+   a line-through on a block-level box so it survives a wrapped title — as a
+   positioned pseudo-element it collapsed to a stub on the second line. */
+.entry.is-struck > .l {
+  display: inline-block;
+  text-decoration: line-through var(--strike-color) var(--strike-weight);
+  text-decoration-skip-ink: none;
+  transform: rotate(var(--strike-tilt));
+  transform-origin: left center;
 }
+
+/* Kept: not finished, not killed. Held open against a named person. */
+.entry.is-kept > .l { border-left: 2px solid var(--accent); padding-left: var(--s2); }
+.entry.is-kept > .state { color: var(--accent); }
+
+.entry.at > .state { color: var(--accent); font-weight: 600; }
+.entry.at > .l { font-weight: 600; color: var(--ink); }
 
 .empty { color: var(--ink-dim); font-size: var(--t-sm); padding: var(--s3) 0; }
 
@@ -273,7 +365,7 @@ textarea { resize: vertical; line-height: 1.6; }
   padding: var(--s4);
   text-align: center;
 }
-.closed p { margin: 0 0 var(--s3); font-family: var(--font-display); font-size: var(--t-lg); }
+.closed h1 { margin: 0 0 var(--s3); font-size: var(--t-lg); }
 </style>
 </head>
 <body>
@@ -314,7 +406,7 @@ textarea { resize: vertical; line-height: 1.6; }
     <div id="today-banner"></div>
     <div class="today" id="today-body" aria-live="polite"></div>
     <div class="ledger">
-      <h2>Ledger</h2>
+      <h2>Ledger <span id="ledger-count" class="count"></span></h2>
       <div id="ledger-body"></div>
     </div>
   </section>
@@ -331,6 +423,7 @@ textarea { resize: vertical; line-height: 1.6; }
 const K_SETTINGS = "spine.v1.settings";
 const K_CYCLE    = "spine.v1.cycle";
 const K_ARCHIVE  = "spine.v1.archive";
+const K_CARRIED  = "spine.v1.carried";
 
 const MODEL = "claude-sonnet-5";
 const API = "https://api.anthropic.com/v1/messages";
@@ -353,8 +446,29 @@ function write(key, value) {
 let settings = read(K_SETTINGS, null);
 let cycle    = read(K_CYCLE, null);
 let archive  = read(K_ARCHIVE, []);
+let carriedForward = read(K_CARRIED, []);
 
-function saveCycle() { write(K_CYCLE, cycle); }
+/* Data written by an earlier version inferred "kept" from three deferrals on a
+   live item. Make that explicit on load so the ledger stops asserting it. */
+if (cycle && Array.isArray(cycle.items)) {
+  cycle.items.forEach(i => {
+    if (i.state === "live" && i.deferrals && i.deferrals.length >= 3 && i.id !== cycle.confrontingId) {
+      i.state = "kept";
+    }
+  });
+}
+
+/* Every Done and every deferral lands here. v2 checked the write at cycle
+   close and left this — the once-per-click path — unchecked, so under quota the
+   ledger showed work that storage had silently refused. Callers must react. */
+function saveCycle() {
+  const ok = write(K_CYCLE, cycle);
+  if (!ok) banner(todayBanner,
+    "Out of storage — that last action was NOT saved. Free some space; nothing is lost yet.");
+  return ok;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 function uuid() {
   if (crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -374,6 +488,7 @@ const screens = {
 
 const keyBanner = document.getElementById("key-banner");
 const todayBanner = document.getElementById("today-banner");
+const ledgerCount = document.getElementById("ledger-count");
 
 function show(name) {
   for (const k in screens) screens[k].classList.toggle("on", k === name);
@@ -472,19 +587,28 @@ function newItem(fields) {
   };
 }
 
+/* Returns null when the response could not be understood, and [] only when the
+   model genuinely reported no obligations — which the prompt explicitly asks
+   for. v2 collapsed the two, so a correct empty answer was announced as a
+   failure and then had commitments invented for it. */
 function parseExtraction(text) {
   const clean = unfence(text);
   const open = clean.indexOf("[");
   const close = clean.lastIndexOf("]");
-  if (open === -1 || close <= open) return [];
+  if (open === -1 || close <= open) return null;
   let arr;
-  try { arr = JSON.parse(clean.slice(open, close + 1)); } catch (e) { return []; }
-  if (!Array.isArray(arr)) return [];
+  try { arr = JSON.parse(clean.slice(open, close + 1)); } catch (e) { return null; }
+  if (!Array.isArray(arr)) return null;
+  if (arr.length === 0) return [];
+
   const keys = ["title", "action", "blockedOn", "consequence"];
-  return arr
+  const valid = arr
     .filter(el => el && typeof el === "object" && keys.every(k => typeof el[k] === "string"))
     .filter(el => el.title.trim() !== "" || el.action.trim() !== "")
     .map(newItem);
+
+  // A non-empty array where nothing survived validation is malformed, not empty.
+  return valid.length === 0 ? null : valid;
 }
 
 // Never block the flow on the model: raw lines, empty fields, and say so.
@@ -537,8 +661,14 @@ dumpGo.addEventListener("click", async () => {
 
   let items = [];
   let failed = false;
+  let empty = false;
   try {
-    items = parseExtraction(await ask(SYS_EXTRACT, raw, 4000, 90000));
+    const parsed = parseExtraction(await ask(SYS_EXTRACT, raw, 4000, 90000));
+    // The prompt tells the model to return [] when there are no obligations.
+    // v2 called that a failure and then invented commitments from the text.
+    if (parsed === null) throw new Error("unparseable");
+    if (parsed.length === 0) empty = true;
+    items = parsed;
   } catch (e) {
     // A rejected key is not a bad extraction. Say which one it is, and send
     // them to the one screen that can fix it — with the dump still in place.
@@ -554,14 +684,42 @@ dumpGo.addEventListener("click", async () => {
     }
     failed = true;
   }
+  if (empty) {
+    dumpGo.disabled = false;
+    dumpGo.textContent = "Extract items";
+    banner(dumpBanner, "No obligations found in that. Nothing has been lost — add more, or reword it.");
+    dumpText.focus();
+    return;
+  }
   if (items.length === 0) { items = fallbackSplit(raw); failed = true; }
+
+  // Items carried from the last cycle keep the deferrals they earned.
+  if (carriedForward.length) {
+    const norm = t => String(t || "").trim().toLowerCase();
+    const byText = new Map(carriedForward.map(c => [norm(c.action), c]));
+    items.forEach(it => {
+      const prior = byText.get(norm(it.action)) || byText.get(norm(it.title));
+      if (prior) {
+        it.deferrals = prior.deferrals.slice();
+        if (!it.blockedOn) it.blockedOn = prior.blockedOn || "";
+      }
+    });
+    carriedForward = [];
+    write(K_CARRIED, carriedForward);
+  }
 
   dumpGo.disabled = false;
   dumpGo.textContent = "Extract items";
 
   const now = new Date().toISOString();
-  cycle = { id: now.slice(0, 10), startedAt: now, items: items, orderedIds: [], cursor: 0 };
-  saveCycle();
+  cycle = { id: now.slice(0, 10), startedAt: now, items: items, orderedIds: [], cursor: 0, confrontingId: null };
+  if (!write(K_CYCLE, cycle)) {
+    cycle = null;
+    banner(dumpBanner,
+      "Out of storage — the cycle could not be saved, so nothing was started. " +
+      "Your dump is still here. Free some space and try again.");
+    return;
+  }
 
   banner(todayBanner,
     failed ? "Extraction failed. Items are raw — fill in the next action yourself." : "");
@@ -597,7 +755,7 @@ function paint(btn, item) {
 
 function compare(a, b) {
   return new Promise(resolve => {
-    orderProgress.textContent = (asked + 1) + " of " + bound + " choices";
+    orderProgress.textContent = "Choice " + (asked + 1) + " of up to " + bound;
     paint(pickA, a);
     paint(pickB, b);
     pending = resolve;
@@ -640,8 +798,8 @@ async function startOrdering() {
     cycle.orderedIds = cycle.items.map(it => it.id);
     cycle.cursor = 0;
     saveCycle();
-    renderToday();
     show("today");
+    renderToday();
     return;
   }
 
@@ -650,8 +808,8 @@ async function startOrdering() {
   cycle.orderedIds = sorted.map(it => it.id);
   cycle.cursor = 0;
   saveCycle();
-  renderToday();
   show("today");
+  renderToday();
 }
 
 /* ============================================================
@@ -671,8 +829,28 @@ function currentItem() {
 /* An item is settled once it is done, struck, or kept because it is blocked on
    someone. Keeping is only reachable at the third deferral, so three deferrals
    on a live item means "parked, waiting on a person" — nothing left to ask. */
+/* Four states. "kept" is explicit now: v2 inferred it from three deferrals on a
+   live item, which meant a reload during the confrontation silently recorded the
+   lenient outcome the user was being made to choose. */
 function settled(item) {
-  return !item || item.state !== "live" || item.deferrals.length >= 3;
+  return !item || item.state !== "live";
+}
+
+/* The screen is called Today and the button says Not today. Both were lies:
+   deferring advanced immediately, so three deferrals could happen inside a
+   minute and the verdict would announce a pattern of avoidance that never
+   occurred. An item may now be deferred at most once per day. */
+function deferredToday(item) {
+  const last = item.deferrals[item.deferrals.length - 1];
+  return !!last && String(last.date).slice(0, 10) === today();
+}
+
+function availableNow(item) {
+  return !settled(item) && !deferredToday(item);
+}
+
+function openCount() {
+  return cycle.orderedIds.filter(id => !settled(itemById(id))).length;
 }
 
 /* The cursor wraps. A single forward pass would let every item be deferred at
@@ -682,9 +860,9 @@ function nextOpen(from) {
   const n = cycle.orderedIds.length;
   for (let step = 1; step <= n; step++) {
     const idx = (from + step) % n;
-    if (!settled(itemById(cycle.orderedIds[idx]))) return idx;
+    if (availableNow(itemById(cycle.orderedIds[idx]))) return idx;
   }
-  return n; // nothing open — the cycle is closed
+  return n; // nothing available — either the day is done or the cycle is
 }
 
 function el(tag, cls, text) {
@@ -703,11 +881,23 @@ function advance() {
 function renderToday() {
   todayBody.textContent = "";
 
+  if (cycle.confrontingId) {
+    const c = itemById(cycle.confrontingId);
+    // A reload during the confrontation used to escape it and silently record
+    // the lenient outcome. It now resumes exactly where it stopped.
+    if (c && c.state === "live") { confront(c); return; }
+    cycle.confrontingId = null;
+  }
+
   const item = currentItem();
-  if (item === null) { renderClosed(); }
+  if (item === null) { openCount() > 0 ? renderDayDone() : renderClosed(); }
   else { renderItem(item); }
 
-  // A thrown error in the ledger must not white out the screen above it.
+  renderLedgerSafely();
+}
+
+// A thrown error in the ledger must not white out the screen above it.
+function renderLedgerSafely() {
   try { renderLedger(); }
   catch (e) {
     ledgerBody.textContent = "";
@@ -716,20 +906,26 @@ function renderToday() {
 }
 
 function renderItem(item) {
-  todayBody.appendChild(el("p", "eyebrow", "Today"));
+  const h = el("h1", "eyebrow", "Today");
+  h.tabIndex = -1;
+  todayBody.appendChild(h);
 
-  const action = el("p", "action-line", item.action || item.title);
-  todayBody.appendChild(action);
+  todayBody.appendChild(el("p", "action-line", item.action || item.title));
 
-  if (item.blockedOn) {
-    todayBody.appendChild(el("p", "blocked", "Blocked on " + item.blockedOn));
-  }
+  // The consequence is the one thing the model is load-bearing for, and it was
+  // collected then never shown. It is the evidence for the order.
+  if (item.consequence) todayBody.appendChild(el("p", "because", item.consequence));
+  if (item.blockedOn) todayBody.appendChild(el("p", "blocked", "Blocked on " + item.blockedOn));
 
-  const controls = el("div", "row");
+  const controls = el("div", "row row-wide");
   controls.style.marginTop = "var(--s5)";
 
   const done = el("button", "btn btn-primary", "Done");
   done.addEventListener("click", () => {
+    // Disable in place rather than on a timer: a second click on THIS button
+    // used to settle the next-ranked item too, but a deliberate click on the
+    // next one must not be swallowed. advance() replaces the button anyway.
+    done.disabled = true;
     item.state = "done";
     advance();
   });
@@ -743,12 +939,28 @@ function renderItem(item) {
   controls.appendChild(done);
   controls.appendChild(not);
   todayBody.appendChild(controls);
+  h.focus();
+}
+
+/* Deferring now parks an item until tomorrow, so a day can run out before the
+   cycle does. This is a state of Today, not a fourth screen. */
+function renderDayDone() {
+  const h = el("h1", "eyebrow", "Today");
+  h.tabIndex = -1;
+  todayBody.appendChild(h);
+  todayBody.appendChild(el("p", "action-line", "Nothing left today."));
+  const n = openCount();
+  todayBody.appendChild(el("p", "because",
+    n + (n === 1 ? " thread is still open" : " threads are still open") +
+    ". You deferred them today; they come back tomorrow."));
+  h.focus();
 }
 
 function reasonRow(item) {
   const box = el("div");
   box.style.marginTop = "var(--s5)";
-  box.appendChild(el("p", "eyebrow", "Why not"));
+  const h = el("p", "eyebrow", "Why not?");
+  box.appendChild(h);
 
   const row = el("div", "row");
   ["Blocked", "No time", "Not real"].forEach(label => {
@@ -775,6 +987,12 @@ function reasonRow(item) {
   typed.appendChild(ok);
   box.appendChild(typed);
 
+  // A mis-tap on "Not today" used to have no exit that did not write a false
+  // reason into a record whose whole value is that it is true.
+  const cancel = el("button", "btn-link", "Never mind");
+  cancel.addEventListener("click", () => renderToday());
+  box.appendChild(cancel);
+
   return box;
 }
 
@@ -787,10 +1005,17 @@ async function defer(item, reason) {
   deferring = true;
   try {
     item.deferrals.push({ date: new Date().toISOString(), reason: reason });
-    saveCycle();
 
-    // The rule that makes it work: the third deferral does not advance.
-    if (item.deferrals.length >= 3) { await confront(item); return; }
+    // The rule that makes it work: the third deferral does not advance. Commit
+    // that we are confronting BEFORE the model call, so a reload during the
+    // wait resumes the confrontation instead of escaping it.
+    if (item.deferrals.length >= 3) {
+      cycle.confrontingId = item.id;
+      saveCycle();
+      await confront(item);
+      return;
+    }
+    saveCycle();
     advance();
   } finally {
     deferring = false;
@@ -798,77 +1023,116 @@ async function defer(item, reason) {
 }
 
 async function confront(item) {
-  todayBody.textContent = "";
-  todayBody.appendChild(el("p", "eyebrow", "Third deferral"));
-  todayBody.appendChild(el("p", "action-line", item.action || item.title));
-  const waiting = el("div", "verdict");
-  waiting.appendChild(el("p", null, "Reading the reasons…"));
-  todayBody.appendChild(waiting);
+  const head = () => {
+    todayBody.textContent = "";
+    const h = el("h1", "eyebrow", "Third deferral");
+    h.tabIndex = -1;
+    todayBody.appendChild(h);
+    todayBody.appendChild(el("p", "action-line", item.action || item.title));
+    return h;
+  };
 
-  let out;
+  head();
+  const waiting = el("div", "verdict");
+  waiting.appendChild(el("p", null, "Reading the reasons\u2026"));
+  todayBody.appendChild(waiting);
+  todayBody.setAttribute("aria-busy", "true");
+  renderLedgerSafely();
+
+  let out, reached = true;
   try {
     out = parseVerdict(await ask(SYS_VERDICT, JSON.stringify({
-      title: item.title,
-      action: item.action,
-      blockedOn: item.blockedOn,
-      consequence: item.consequence,
-      deferrals: item.deferrals
+      title: item.title, action: item.action, blockedOn: item.blockedOn,
+      consequence: item.consequence, deferrals: item.deferrals
     }), 1000, 45000));
   } catch (e) {
+    // The model was never reached. Say so rather than dressing a canned
+    // sentence in the same authority as a real judgement.
+    reached = false;
     out = { verdict: "Deferred three times with no external blocker named.", recommend: "strike" };
-    if (rejectedKey(e)) banner(todayBanner, "That API key was rejected. The verdict below is the default.");
+    banner(todayBanner, rejectedKey(e)
+      ? "That API key was rejected, so the model was not consulted. The line below is this app's default, not a judgement."
+      : "The model could not be reached, so the line below is this app's default, not a judgement.");
   }
+  todayBody.removeAttribute("aria-busy");
 
-  todayBody.textContent = "";
-  todayBody.appendChild(el("p", "eyebrow", "Third deferral"));
-  todayBody.appendChild(el("p", "action-line", item.action || item.title));
-
+  const h = head();
   const v = el("div", "verdict");
   v.appendChild(el("p", null, out.verdict));
-  v.appendChild(el("p", "rec", out.recommend === "keep"
-    ? "Reads as genuinely blocked." : "Reads as not a commitment."));
+  v.appendChild(el("p", "rec", !reached ? "Default \u2014 the model was not reached."
+    : out.recommend === "keep" ? "Reads as genuinely blocked." : "Reads as not a commitment."));
   todayBody.appendChild(v);
 
-  const controls = el("div", "row");
+  const controls = el("div", "row row-wide");
   controls.style.marginTop = "var(--s4)";
+
+  const finish = () => { cycle.confrontingId = null; saveCycle(); advance(); };
 
   const strike = el("button", "btn btn-warn", "Strike it");
   strike.addEventListener("click", () => {
     item.state = "struck";
-    item.struckReason = out.verdict;
-    advance();
+    item.struckReason = reached ? out.verdict : "Struck by default \u2014 the model was not reached.";
+    finish();
   });
 
+  // Keeping used to be free, which made "carried" the cheapest word in the
+  // ledger. It is the strongest claim in the app, so it now costs a name.
   const keep = el("button", "btn", "Keep, it's blocked on someone");
-  keep.addEventListener("click", () => advance());
+  keep.addEventListener("click", () => {
+    controls.remove();
+    const box = el("div");
+    box.style.marginTop = "var(--s4)";
+    box.appendChild(el("p", "eyebrow", "Who is holding this up?"));
+    const row = el("div", "row row-wide");
+    const who = document.createElement("input");
+    who.type = "text";
+    who.setAttribute("aria-label", "Who is holding this up");
+    who.placeholder = "a name";
+    who.value = item.blockedOn || "";
+    who.style.flex = "1 1 12ch";
+    const save = el("button", "btn", "Keep it");
+    const commit = () => {
+      const name = who.value.trim();
+      if (name === "") { who.focus(); return; }
+      item.blockedOn = name;
+      item.state = "kept";
+      finish();
+    };
+    save.addEventListener("click", commit);
+    who.addEventListener("keydown", e => { if (e.key === "Enter") commit(); });
+    row.appendChild(who); row.appendChild(save);
+    box.appendChild(row);
+    todayBody.appendChild(box);
+    who.focus();
+  });
 
   // Fixed order, always. This is the highest-stakes click in the app, and
-  // buttons that move under the cursor are a mis-click generator — striking a
-  // real commitment or keeping a fake one. The recommendation is carried by
-  // the line above, not by position. There is no third option.
+  // buttons that move under the cursor are a mis-click generator. The
+  // recommendation is carried by the line above, not by position; .row-wide
+  // puts a real gap between them so a mis-aim cannot kill a commitment.
   controls.appendChild(strike);
   controls.appendChild(keep);
-
   todayBody.appendChild(controls);
+  renderLedgerSafely();
+  h.focus();
 }
 
 function renderClosed() {
   const done = cycle.items.filter(i => i.state === "done").length;
   const struck = cycle.items.filter(i => i.state === "struck").length;
-  const carried = cycle.items.filter(i => i.state === "live").length;
+  const carried = cycle.items.filter(i => i.state === "kept").length;
 
   const box = el("div", "closed");
-  box.appendChild(el("p", null,
-    "Cycle closed. " + done + " done, " + struck + " struck, " + carried + " carried."));
+  const h = el("h1", null, "Cycle closed. " + done + " done, " + struck + " struck, " + carried + " carried.");
+  h.tabIndex = -1;
+  box.appendChild(h);
 
   const b = el("button", "btn btn-primary btn-block", "Start a new cycle");
   b.addEventListener("click", () => {
-    const carriedItems = cycle.items.filter(i => i.state === "live");
+    const carriedItems = cycle.items.filter(i => i.state === "kept");
     const closing = cycle;
 
     // Never delete the cycle before the archive write has actually landed.
-    // localStorage throws on quota, and swallowing that here destroyed the
-    // one artefact this whole tool exists to accumulate.
     archive.unshift(closing);
     if (!write(K_ARCHIVE, archive)) {
       archive.shift();
@@ -878,20 +1142,40 @@ function renderClosed() {
       return;
     }
 
+    // Carry the history, not just the words. Re-extracting carried items used
+    // to hand every one of them a clean sheet, so anything could dodge the
+    // three-deferral wall forever by riding the cycle boundary.
+    carriedForward = carriedItems.map(i => ({
+      action: i.action || i.title, deferrals: i.deferrals, blockedOn: i.blockedOn
+    }));
+    write(K_CARRIED, carriedForward);
+
     cycle = null;
     try { localStorage.removeItem(K_CYCLE); } catch (e) { /* ignore */ }
 
     dumpText.value = carriedItems.map(i => i.action || i.title).join("\n");
-    banner(dumpBanner, "");
+    banner(dumpBanner, carriedItems.length
+      ? "Carried from the last cycle. Their deferral history comes with them."
+      : "");
     banner(todayBanner, "");
     show("dump");
     dumpText.focus();
   });
   box.appendChild(b);
   todayBody.appendChild(box);
+  h.focus();
 }
 
-/* The ledger only ever gets shorter between resets. That is the point. */
+const MARKS = {
+  done:   { word: "done",   cls: "is-done" },
+  struck: { word: "struck", cls: "is-struck" },
+  kept:   { word: "kept",   cls: "is-kept" }
+};
+
+/* The ledger only ever gets shorter between resets. That is the point — but
+   only if the marks differ. v2 ruled done and struck through identically, so a
+   finished week and a collapsed one were the same page, and the accessible
+   name of a completed item was indistinguishable from an untouched one. */
 function renderLedger() {
   ledgerBody.textContent = "";
 
@@ -900,12 +1184,25 @@ function renderLedger() {
     return;
   }
 
+  const counts = { done: 0, struck: 0, kept: 0, live: 0 };
+  cycle.orderedIds.forEach(id => {
+    const it = itemById(id);
+    if (it) counts[it.state] = (counts[it.state] || 0) + 1;
+  });
+  ledgerCount.textContent = counts.live + " open · " + counts.done + " done · " +
+    counts.struck + " struck · " + counts.kept + " carried";
+
+  const list = document.createElement("ul");
+  list.className = "entries";
+
   cycle.orderedIds.forEach((id, idx) => {
     const item = itemById(id);
     if (!item) return;
 
-    const row = el("div", "entry");
-    if (item.state !== "live") row.classList.add("ruled");
+    const row = document.createElement("li");
+    row.className = "entry";
+    const mark = MARKS[item.state];
+    if (mark) row.classList.add("ruled", mark.cls);
     if (idx === cycle.cursor && item.state === "live") row.classList.add("at");
 
     const line = el("span", "l");
@@ -913,18 +1210,26 @@ function renderLedger() {
     line.appendChild(document.createTextNode(item.title));
     row.appendChild(line);
 
+    // State as a word, not only as a colour and a line.
+    row.appendChild(el("span", "state", mark ? mark.word
+      : (idx === cycle.cursor ? "today" : deferredToday(item) ? "deferred today" : "open")));
+
     if (item.state === "struck" && item.struckReason) {
       row.appendChild(el("span", "why", item.struckReason));
-    } else if (settled(item) && item.state === "live") {
-      row.appendChild(el("span", "why",
-        item.blockedOn ? "Kept — blocked on " + item.blockedOn : "Kept — blocked on someone"));
+    } else if (item.state === "kept") {
+      row.appendChild(el("span", "why", "Blocked on " + (item.blockedOn || "someone")));
     } else if (item.deferrals.length > 0) {
+      const last = item.deferrals[item.deferrals.length - 1];
+      // Her own words, given back to her. This is the evidence that decides
+      // whether the deferral is still valid.
       row.appendChild(el("span", "why",
-        item.deferrals.length + (item.deferrals.length === 1 ? " deferral" : " deferrals")));
+        item.deferrals.length + "\u00d7 deferred — last: " + last.reason));
     }
 
-    ledgerBody.appendChild(row);
+    list.appendChild(row);
   });
+
+  ledgerBody.appendChild(list);
 }
 
 /* ============================================================
@@ -951,8 +1256,14 @@ keyInput.addEventListener("keydown", e => {
 function boot() {
   if (!settings || !settings.apiKey) { show("key"); return; }
   if (cycle && Array.isArray(cycle.orderedIds) && cycle.orderedIds.length > 0) {
-    renderToday();
+    // A new day starts at the top of the spine. The order is the whole point;
+    // resuming halfway down it would quietly re-rank by arrival time.
+    if (!cycle.confrontingId && !availableNow(currentItem())) {
+      cycle.cursor = nextOpen(-1);
+      saveCycle();
+    }
     show("today");
+    renderToday();
     return;
   }
   // A cycle with items but no order was abandoned mid-sort; order it again.

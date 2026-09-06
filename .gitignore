@@ -1,2 +1,8 @@
 node_modules/
 run.log
+
+# Research evidence: screenshots and the ad-hoc per-persona driver scripts are
+# reproducible from research/lab.mjs; the written findings are what matter.
+research/findings/*.png
+research/c[0-9]-*.mjs
+research/p[0-9]*-*.mjs

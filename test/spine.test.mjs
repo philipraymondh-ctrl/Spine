@@ -52,6 +52,27 @@ async function newPage(ctx) {
   return page;
 }
 
+/* v3 allows one deferral per item per calendar day. To reach the third
+   deferral a test must cross day boundaries: backdate what is stored, then
+   reload so the app re-reads it. This also exercises rehydration. */
+async function passDays(page, days = 1) {
+  await page.evaluate(d => {
+    const c = JSON.parse(localStorage.getItem("spine.v1.cycle"));
+    c.items.forEach(i => i.deferrals.forEach(x => {
+      x.date = new Date(new Date(x.date).getTime() - d * 864e5).toISOString();
+    }));
+    localStorage.setItem("spine.v1.cycle", JSON.stringify(c));
+  }, days);
+  await page.reload();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+}
+
+async function deferOnce(page, reason) {
+  await page.locator("#today-body button", { hasText: "Not today" }).click();
+  await page.locator("#today-body button", { hasText: reason }).click();
+  await page.waitForTimeout(40);
+}
+
 const visible = (page, id) => page.locator("#" + id).evaluate(n => n.classList.contains("on"));
 
 async function answerOrdering(page, pick = "#pick-a") {
@@ -117,8 +138,9 @@ async function answerOrdering(page, pick = "#pick-a") {
 
   // progress label + comparison count
   const label = await page.locator("#order-progress").textContent();
-  const bound = Number(label.match(/of (\d+) choices/)[1]);
-  check("progress reads 'N of M choices'", /^\d+ of \d+ choices$/.test(label.trim()), label);
+  const bound = Number(label.match(/up to (\d+)/)[1]);
+  check("progress states a ceiling, not a false total",
+    /^Choice \d+ of up to \d+$/.test(label.trim()), label);
   const consequenceShown = await page.locator("#pick-a .c").textContent();
   check("order screen shows consequence under title", consequenceShown.length > 0);
 
@@ -177,7 +199,7 @@ for (const failMode of ["http500", "garbage"]) {
 }
 
 // ===========================================================================
-// 4. third deferral blocks advance; strike is permanent
+// 4. the day boundary, the wrap, the confrontation, the strike
 // ===========================================================================
 {
   mode = "ok"; calls = []; itemCount = 2;
@@ -191,44 +213,47 @@ for (const failMode of ["http500", "garbage"]) {
   await page.waitForSelector("#s-order.on");
   await answerOrdering(page);
 
-  const defer = async reason => {
-    await page.locator("#today-body button", { hasText: "Not today" }).click();
-    await page.locator("#today-body button", { hasText: reason }).click();
-    await page.waitForTimeout(20);
-  };
-
-  // The cursor must wrap: a single forward pass caps every item at one
-  // deferral, which would make the third-deferral rule unreachable.
   const first = await page.locator(".action-line").textContent();
-  await defer("No time");
+  await deferOnce(page, "No time");
   const second = await page.locator(".action-line").textContent();
   check("deferring moves to the next open item", second !== first);
-  await defer("No time");
-  const wrapped = await page.locator(".action-line").textContent();
-  check("cursor wraps back to the still-open item", wrapped === first, wrapped);
+
+  // v3: an item deferred today does not come back today.
+  await deferOnce(page, "No time");
+  check("the day runs out once everything has been deferred",
+    (await page.locator(".action-line").textContent()) === "Nothing left today.");
+  check("it says how many threads are still open",
+    (await page.locator(".because").textContent()).includes("2 threads are still open"));
+  const cyc = await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.cycle")));
+  check("nothing was settled by running out of day",
+    cyc.items.every(i => i.state === "live"));
+
+  await passDays(page, 1);
+  const backAgain = await page.locator(".action-line").textContent();
+  check("tomorrow the deferred item comes back", backAgain === first, backAgain);
   const carriedDeferrals = await page.evaluate(t =>
     JSON.parse(localStorage.getItem("spine.v1.cycle")).items
       .find(i => i.action === t).deferrals.length, first);
-  check("deferral history survives the wrap", carriedDeferrals === 1, String(carriedDeferrals));
+  check("deferral history survives the day boundary", carriedDeferrals === 1);
 
-  await defer("No time");   // first item: 2nd deferral
-  await defer("No time");   // second item: 2nd deferral, wraps back
-  check("back on the first item for its third",
-    await page.locator(".action-line").textContent() === first);
+  await deferOnce(page, "No time");            // day 2, item one -> 2nd
+  await deferOnce(page, "No time");            // day 2, item two
+  await passDays(page, 1);
 
   const cursorBefore = await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.cycle")).cursor);
-  await defer("Blocked");
-  await page.waitForSelector(".verdict", { timeout: 5000 });
+  await deferOnce(page, "Blocked");            // day 3 -> third deferral
+  await page.waitForSelector(".verdict", { timeout: 8000 });
 
   const verdictCall = calls[calls.length - 1];
   check("third deferral fires the verdict call", verdictCall.body.max_tokens === 1000);
   const sent = JSON.parse(verdictCall.body.messages[0].content);
-  check("verdict call sends all three deferral reasons", sent.deferrals.length === 3,
-    JSON.stringify(sent.deferrals.map(d => d.reason)));
+  check("the verdict sees three deferrals on three separate days",
+    sent.deferrals.length === 3 &&
+    new Set(sent.deferrals.map(d => d.date.slice(0, 10))).size === 3,
+    JSON.stringify(sent.deferrals.map(d => d.date.slice(0, 10))));
 
   const cursorAfter = await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.cycle")).cursor);
-  check("third deferral does NOT advance the cursor", cursorAfter === cursorBefore,
-    cursorBefore + " -> " + cursorAfter);
+  check("third deferral does NOT advance the cursor", cursorAfter === cursorBefore);
 
   const btns = await page.locator("#today-body .row button").allTextContents();
   check("exactly two options, no third", btns.length === 2, JSON.stringify(btns));
@@ -237,15 +262,30 @@ for (const failMode of ["http500", "garbage"]) {
   check("verdict text is displayed",
     (await page.locator(".verdict p:not(.rec)").textContent()).includes("deferred this three times"));
 
+  // v3 BLOCKER fix: reload must resume the confrontation, not escape it.
+  await page.reload();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  await page.waitForSelector(".verdict", { timeout: 8000 });
+  check("reloading resumes the confrontation instead of escaping it",
+    await page.locator(".verdict").count() === 1);
+  const afterReload = await page.locator("#today-body .row button").allTextContents();
+  check("reload still offers only Strike / Keep", afterReload.length === 2, JSON.stringify(afterReload));
+  const ledgerWord = await page.locator(".entry .state").first().textContent();
+  check("an unresolved confrontation is NOT recorded as kept",
+    ledgerWord.trim() !== "kept", ledgerWord);
+
   await page.locator("button", { hasText: "Strike it" }).click();
   const struck = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("spine.v1.cycle")).items.find(i => i.state === "struck"));
   check("Strike it records state + reason", !!struck && struck.struckReason.length > 0);
-  check("struck item stays ruled through in the ledger",
-    await page.locator(".entry.ruled").count() === 1);
-  const strikeStyle = await page.locator(".entry.ruled .l").evaluate(n =>
-    getComputedStyle(n, "::after").transform);
-  check("strike is drawn at a slight angle", strikeStyle !== "none" && strikeStyle !== "", strikeStyle);
+  check("confrontingId is cleared after resolving",
+    await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.cycle")).confrontingId) === null);
+  check("struck item is ruled through", await page.locator(".entry.is-struck").count() === 1);
+  const strikeStyle = await page.locator(".entry.is-struck .l").evaluate(n => getComputedStyle(n));
+  check("strike is a real line-through, not a positioned bar",
+    strikeStyle.textDecorationLine === "line-through", strikeStyle.textDecorationLine);
+  check("strike is drawn at an angle",
+    strikeStyle.transform !== "none" && strikeStyle.transform !== "", strikeStyle.transform);
 
   await ctx.close();
 }
@@ -265,11 +305,10 @@ for (const failMode of ["http500", "garbage"]) {
   await page.waitForSelector("#s-today.on");
   mode = "garbage";
   for (let n = 0; n < 3; n++) {
-    await page.locator("#today-body button", { hasText: "Not today" }).click();
-    await page.locator("#today-body button", { hasText: "Not real" }).click();
-    await page.waitForTimeout(30);
+    await deferOnce(page, "Not real");
+    if (n < 2) await passDays(page, 1);
   }
-  await page.waitForSelector(".verdict", { timeout: 5000 });
+  await page.waitForSelector(".verdict", { timeout: 8000 });
   check("unparseable verdict falls back to the strike-biased default",
     (await page.locator(".verdict p:not(.rec)").textContent()).includes("no external blocker named"));
   await ctx.close();
@@ -296,18 +335,28 @@ for (const failMode of ["http500", "garbage"]) {
   // Last one standing: defer it to the confrontation, then keep it as blocked.
   const carriedAction = await page.locator(".action-line").textContent();
   for (let n = 0; n < 3; n++) {
-    await page.locator("#today-body button", { hasText: "Not today" }).click();
-    await page.locator("#today-body button", { hasText: "Blocked" }).click();
-    await page.waitForTimeout(20);
+    await deferOnce(page, "Blocked");
+    if (n < 2) await passDays(page, 1);
   }
-  await page.waitForSelector(".verdict", { timeout: 5000 });
+  await page.waitForSelector(".verdict", { timeout: 8000 });
   await page.locator("button", { hasText: "Keep, it's blocked on someone" }).click();
+  check("Keep asks who is holding it up",
+    await page.locator("input[aria-label='Who is holding this up']").count() === 1);
+  await page.locator("input[aria-label='Who is holding this up']").fill("");
+  await page.locator("button", { hasText: "Keep it" }).click();
+  check("Keep refuses to proceed without a name",
+    await page.locator(".closed").count() === 0);
+  await page.locator("input[aria-label='Who is holding this up']").fill("Dana");
+  await page.locator("button", { hasText: "Keep it" }).click();
 
-  const closed = await page.locator(".closed p").textContent();
-  check("keeping a blocked item parks it and closes the cycle",
+  const closed = await page.locator(".closed h1").textContent();
+  check("keeping a named blocker parks it and closes the cycle",
     closed === "Cycle closed. 2 done, 0 struck, 1 carried.", closed);
-  check("a kept item is marked blocked in the ledger",
-    (await page.locator("#ledger-body").textContent()).includes("Kept — blocked"));
+  check("the ledger names who is holding it",
+    (await page.locator("#ledger-body").textContent()).includes("Blocked on Dana"));
+  check("kept has its own mark, distinct from done and struck",
+    await page.locator(".entry.is-kept").count() === 1 &&
+    await page.locator(".entry.is-struck").count() === 0);
   check("ledger still visible at close", await page.locator(".entry").count() === 3);
 
   await page.locator("button", { hasText: "Start a new cycle" }).click();
@@ -527,11 +576,10 @@ for (const rec of ["strike", "keep"]) {
   await page.locator("#dump-go").click();
   await page.waitForSelector("#s-today.on");
   for (let n = 0; n < 3; n++) {
-    await page.locator("#today-body button", { hasText: "Not today" }).click();
-    await page.locator("#today-body button", { hasText: "No time" }).click();
-    await page.waitForTimeout(30);
+    await deferOnce(page, "No time");
+    if (n < 2) await passDays(page, 1);
   }
-  await page.waitForSelector(".verdict", { timeout: 5000 });
+  await page.waitForSelector(".verdict", { timeout: 8000 });
   const order = await page.locator("#today-body .row button").allTextContents();
   check("[recommend=" + rec + "] Strike it is always first",
     order[0] === "Strike it" && order[1] === "Keep, it's blocked on someone", JSON.stringify(order));
@@ -563,6 +611,250 @@ for (const rec of ["strike", "keep"]) {
   const action = await page.locator(".action-line").textContent();
   check("fenced payload parses and inner backticks survive",
     action === "Run ```npm test``` and ship", action);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 14. v3 — every interaction is checked against storage
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 2;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("a\nb");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on");
+  await answerOrdering(page);
+
+  await page.evaluate(() => {
+    window.__real = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) {
+      if (k === "spine.v1.cycle") { const e = new Error("Quota"); e.name = "QuotaExceededError"; throw e; }
+      return window.__real.call(this, k, v);
+    };
+  });
+  const before = await page.evaluate(() => localStorage.getItem("spine.v1.cycle"));
+  await page.locator("#today-body button", { hasText: "Done" }).click();
+  const after = await page.evaluate(() => localStorage.getItem("spine.v1.cycle"));
+  check("a rejected per-action write is reported, not swallowed",
+    (await page.locator("#today-banner .banner").textContent()).includes("NOT saved"));
+  check("nothing is silently lost when the write fails", before === after);
+  await page.evaluate(() => { Storage.prototype.setItem = window.__real; });
+  await ctx.close();
+}
+
+// ===========================================================================
+// 15. v3 — done, struck and kept are three different marks
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 2;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("a\nb");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on");
+  await answerOrdering(page);
+  await page.locator("#today-body button", { hasText: "Done" }).click();
+
+  check("a done item is NOT ruled through in correction red",
+    await page.locator(".entry.is-done").count() === 1 &&
+    await page.locator(".entry.is-struck").count() === 0);
+  const doneDecoration = await page.locator(".entry.is-done .l")
+    .evaluate(n => getComputedStyle(n).textDecorationLine);
+  check("done carries no strike", doneDecoration === "none", doneDecoration);
+  const words = await page.locator(".entry .state").allTextContents();
+  check("every ledger row states its condition in words",
+    words.length === 2 && words.includes("done"), JSON.stringify(words));
+  check("the ledger is a list", await page.locator("ul.entries li.entry").count() === 2);
+  check("the ledger heading carries a live count",
+    (await page.locator("#ledger-count").textContent()).includes("1 done"));
+
+  // The fold has to be real, or the ordering ritual buys nothing.
+  const fold = await page.evaluate(() => {
+    const l = document.querySelector(".ledger").getBoundingClientRect();
+    return { top: Math.round(l.top), vh: window.innerHeight,
+             scrolls: document.documentElement.scrollHeight > window.innerHeight };
+  });
+  check("the ledger sits below the fold", fold.top >= fold.vh,
+    "ledger at " + fold.top + " of " + fold.vh);
+  check("the page actually scrolls", fold.scrolls);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 16. v3 — the consequence is shown, and [] is not a failure
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("board deck");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  check("the consequence is shown under the action",
+    (await page.locator(".because").textContent()).includes("board meeting"));
+  await ctx.close();
+}
+{
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.route("**/api.anthropic.com/**", route => route.fulfill({ status: 200,
+    contentType: "application/json", body: JSON.stringify({ content: [{ type: "text", text: "[]" }] }) }));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("just some musing, nothing owed");
+  await page.locator("#dump-go").click();
+  await page.waitForTimeout(400);
+  check("an empty extraction is an answer, not a failure",
+    await visible(page, "s-dump"));
+  check("it says nothing was found, and blames nobody",
+    (await page.locator("#dump-banner .banner").textContent()).includes("No obligations found"));
+  check("no commitments are invented from the text",
+    await page.evaluate(() => localStorage.getItem("spine.v1.cycle")) === null);
+  check("the dump is preserved",
+    (await page.locator("#dump-text").inputValue()).length > 0);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 17. v3 — deferral history rides across the cycle boundary
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("the thing");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  for (let n = 0; n < 3; n++) {
+    await deferOnce(page, "Blocked");
+    if (n < 2) await passDays(page, 1);
+  }
+  await page.waitForSelector(".verdict", { timeout: 8000 });
+  await page.locator("button", { hasText: "Keep, it's blocked on someone" }).click();
+  await page.locator("input[aria-label='Who is holding this up']").fill("Ada");
+  await page.locator("button", { hasText: "Keep it" }).click();
+  await page.waitForSelector(".closed", { timeout: 8000 });
+  await page.locator("button", { hasText: "Start a new cycle" }).click();
+  check("the carry is announced, not silent",
+    (await page.locator("#dump-banner .banner").textContent()).includes("deferral history"));
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  const inherited = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("spine.v1.cycle")).items[0]);
+  check("a carried item keeps the deferrals it earned",
+    inherited.deferrals.length === 3, "got " + inherited.deferrals.length);
+  check("a carried item keeps who was blocking it", inherited.blockedOn === "Ada");
+  await ctx.close();
+}
+
+// ===========================================================================
+// 18. v3 — a fabricated verdict is labelled as one
+// ===========================================================================
+{
+  itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  let n = 0;
+  await page.route("**/api.anthropic.com/**", route => {
+    const body = JSON.parse(route.request().postData());
+    if (body.max_tokens === 1000) return route.fulfill({ status: 500, body: "down" });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify([{ title: "T", action: "Do the thing",
+        blockedOn: "", consequence: "It breaks." }]) }] }) });
+  });
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("the thing");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  for (let i = 0; i < 3; i++) {
+    await deferOnce(page, "No time");
+    if (i < 2) await passDays(page, 1);
+  }
+  await page.waitForSelector(".verdict", { timeout: 8000 });
+  check("an unreachable model is admitted, not impersonated",
+    (await page.locator("#today-banner .banner").textContent()).includes("not a judgement"));
+  check("the default is labelled a default",
+    (await page.locator(".verdict .rec").textContent()).includes("Default"));
+  await page.locator("button", { hasText: "Strike it" }).click();
+  const reason = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("spine.v1.cycle")).items[0].struckReason);
+  check("the permanent record does not claim the model judged it",
+    reason.includes("not reached"), reason);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 19. v3 — arrival, focus, and a reason row you can back out of
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 2;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("a\nb");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on");
+  await answerOrdering(page);
+  const focused = await page.evaluate(() => ({
+    tag: document.activeElement.tagName,
+    text: (document.activeElement.textContent || "").trim()
+  }));
+  check("arriving on Today moves focus to its heading",
+    focused.tag === "H1" && focused.text === "Today", JSON.stringify(focused));
+  check("Today has a real heading", await page.locator("#today-body h1").count() === 1);
+  check("the action line is a live region",
+    await page.locator("#today-body[aria-live='polite']").count() === 1);
+
+  await page.locator("#today-body button", { hasText: "Not today" }).click();
+  check("the reason row offers a way out", await page.locator(".btn-link").count() === 1);
+  await page.locator(".btn-link").click();
+  check("backing out writes no reason",
+    (await page.evaluate(() => JSON.parse(localStorage.getItem("spine.v1.cycle"))
+      .items.every(i => i.deferrals.length === 0))));
+  check("backing out returns to Done / Not today",
+    (await page.locator("#today-body .row button").allTextContents()).join() === "Done,Not today");
+  await ctx.close();
+}
+
+// ===========================================================================
+// 20. v3 — it works in the dark
+// ===========================================================================
+{
+  const ctx = await browser.newContext({ colorScheme: "dark" });
+  const page = await newPage(ctx);
+  await page.goto(URLBASE);
+  const dark = await page.evaluate(() => {
+    const cs = getComputedStyle(document.body);
+    const lum = c => {
+      const [r, g, b] = c.match(/\d+/g).slice(0, 3).map(Number).map(v => {
+        v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const bg = lum(cs.backgroundColor), fg = lum(cs.color);
+    const hi = Math.max(bg, fg), lo = Math.min(bg, fg);
+    return { bg: cs.backgroundColor, ratio: (hi + 0.05) / (lo + 0.05) };
+  });
+  check("dark mode actually inverts the ledger stock", dark.bg !== "rgb(220, 226, 219)", dark.bg);
+  check("body text still passes AA in the dark", dark.ratio >= 4.5, dark.ratio.toFixed(2) + ":1");
   await ctx.close();
 }
 
