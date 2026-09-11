@@ -35,6 +35,12 @@
   --edge: #8E978F;      /* 3.03:1 on --bg, meets 1.4.11 for non-text contrast */
   --rule: color-mix(in srgb, var(--ink) 12%, transparent);
 
+  /* Motion vocabulary. There is almost none of it on purpose: all boldness is
+     spent on the strike, so everything else stays still. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur-settle: 320ms;   /* the strike landing — the one moment with weight */
+  --dur-quick: 180ms;    /* bridging a layout swap so it does not teleport */
+
   --strike-weight: 2px;
   --strike-tilt: -0.8deg;
   --strike-color: var(--warn);
@@ -55,8 +61,14 @@
   }
 }
 
+/* Reduced motion is reduced, not removed. A struck commitment must still
+   register — blanking the transition entirely would take the one piece of
+   feedback this product deliberately spends its weight on. The rotation and
+   the breathing pulse go; the colour landing stays, shorter. */
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  :root { --dur-settle: 120ms; --dur-quick: 1ms; }
+  .entry.is-struck.just-struck > .l { transform: rotate(var(--strike-tilt)); }
+  .verdict[data-waiting] { animation: none; }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -249,6 +261,14 @@ textarea { resize: vertical; line-height: 1.6; }
 
 .row-wide { gap: var(--s4); }
 
+/* Two buttons vanish and three chips take their place; without a bridge the
+   layout simply jumps. */
+.reason-row {
+  transition: opacity var(--dur-quick) var(--ease-out),
+              transform var(--dur-quick) var(--ease-out);
+}
+.reason-row.entering { opacity: 0; transform: translateY(-4px); }
+
 .btn-link, .add-new {
   display: inline-block;
   margin-top: var(--s3);
@@ -275,6 +295,15 @@ textarea { resize: vertical; line-height: 1.6; }
   margin: var(--s4) 0 var(--s3);
 }
 .verdict p { margin: 0; }
+
+/* Up to 45 seconds of static text at the moment the user is braced for a
+   judgement reads as a crash. Breathe the rule, not the words — and never a
+   spinner, which implies progress that cannot be measured. */
+@keyframes breathe {
+  0%, 100% { border-left-color: var(--warn); }
+  50%      { border-left-color: color-mix(in srgb, var(--warn) 40%, var(--surface)); }
+}
+.verdict[data-waiting] { animation: breathe 1600ms ease-in-out infinite; }
 .verdict .rec {
   margin-top: var(--s2);
   font-size: var(--t-xs);
@@ -348,6 +377,17 @@ textarea { resize: vertical; line-height: 1.6; }
   text-decoration-skip-ink: none;
   transform: rotate(var(--strike-tilt));
   transform-origin: left center;
+  transition: text-decoration-color var(--dur-settle) var(--ease-out),
+              transform var(--dur-settle) var(--ease-out);
+}
+
+/* The frame the rule arrives on. A left-to-right draw would need a positioned
+   pseudo-element, which collapsed to a stub on wrapped titles — see
+   docs/AUDIT.md. text-decoration-color is animatable and survives the wrap,
+   so the rule lands rather than draws. */
+.entry.is-struck.just-struck > .l {
+  text-decoration-color: transparent;
+  transform: rotate(0deg);
 }
 
 /* Kept: not finished, not killed. Held open against a named person. */
@@ -470,6 +510,13 @@ function saveCycle() {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/* The strike was reported as "witnessed by nobody". The literal reason is the
+   fold: the ledger sits below the viewport, so the row the user just killed
+   changes off-screen. Scrolling to it is the fix; the settle is what makes it
+   land once it can be seen. */
+let justStruckId = null;
+const calmMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function uuid() {
   if (crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1038,7 +1085,8 @@ function renderItem(item) {
   const not = el("button", "btn", "Not today");
   not.addEventListener("click", () => {
     controls.remove();
-    todayBody.appendChild(reasonRow(item));
+    const rr = todayBody.appendChild(reasonRow(item));
+    requestAnimationFrame(() => rr.classList.remove("entering"));
   });
 
   controls.appendChild(done);
@@ -1070,7 +1118,7 @@ function renderDayDone() {
 }
 
 function reasonRow(item) {
-  const box = el("div");
+  const box = el("div", "reason-row entering");
   box.style.marginTop = "var(--s5)";
   const h = el("p", "eyebrow", "Why not?");
   box.appendChild(h);
@@ -1147,6 +1195,7 @@ async function confront(item) {
 
   head();
   const waiting = el("div", "verdict");
+  waiting.setAttribute("data-waiting", "");
   waiting.appendChild(el("p", null, "Reading the reasons\u2026"));
   todayBody.appendChild(waiting);
   todayBody.setAttribute("aria-busy", "true");
@@ -1185,6 +1234,7 @@ async function confront(item) {
   strike.addEventListener("click", () => {
     item.state = "struck";
     item.struckReason = reached ? out.verdict : "Struck by default \u2014 the model was not reached.";
+    justStruckId = item.id;
     finish();
   });
 
@@ -1291,6 +1341,7 @@ const MARKS = {
    name of a completed item was indistinguishable from an untouched one. */
 function renderLedger() {
   ledgerBody.textContent = "";
+  let freshStrike = null;
 
   if (!cycle || cycle.orderedIds.length === 0) {
     ledgerBody.appendChild(el("p", "empty", "Nothing in this cycle. Start with a dump."));
@@ -1316,6 +1367,7 @@ function renderLedger() {
     row.className = "entry";
     const mark = MARKS[item.state];
     if (mark) row.classList.add("ruled", mark.cls);
+    if (item.id === justStruckId) { row.classList.add("just-struck"); freshStrike = row; }
     if (idx === cycle.cursor && item.state === "live") row.classList.add("at");
 
     const line = el("span", "l");
@@ -1343,6 +1395,15 @@ function renderLedger() {
   });
 
   ledgerBody.appendChild(list);
+
+  if (freshStrike) {
+    justStruckId = null;
+    // Two frames: one to commit the un-struck start state, one to release it.
+    requestAnimationFrame(() => {
+      freshStrike.scrollIntoView({ block: "center", behavior: calmMotion() ? "auto" : "smooth" });
+      requestAnimationFrame(() => freshStrike.classList.remove("just-struck"));
+    });
+  }
 }
 
 /* ============================================================

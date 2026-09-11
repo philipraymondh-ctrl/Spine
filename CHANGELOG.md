@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.2.0 — the strike is witnessed
+
+The 30-persona study said the strike — the most consequential and irreversible
+click in the product — was "witnessed by nobody". The literal reason turned out
+not to be the absence of animation: **the ledger sits below the fold, so the
+row you just killed changed off-screen.**
+
+- The struck row **scrolls into view**, then its correction rule lands:
+  `text-decoration-color` transparent → `--warn` and the tilt arriving over
+  320ms. Drawn as a decoration rather than a pseudo-element bar, so it still
+  survives a wrapped title.
+- The reason row **enters** instead of teleporting into the space two buttons
+  just vacated — 180ms, opacity and 4px.
+- The confrontation's wait **breathes** on the rule, not the text. Up to 45
+  seconds of static type at the moment you are braced for a judgement reads as
+  a crash. Never a spinner: that implies progress nobody can measure.
+- `prefers-reduced-motion` previously guarded nothing, and would have hard
+  killed the strike the moment motion existed. It now **reduces rather than
+  removes** — the rotation and the pulse go, the colour landing stays at 120ms.
+  A struck commitment must still register.
+
+Deliberately left still, and asserted in tests so it stays that way: the
+pairwise cards (twelve clicks in a burst — animating them would compound twelve
+times), screen swaps, ledger row entrances, banner entrances, and any flourish
+on cycle close, which would reward volume the product explicitly refuses to
+count.
+
+Suite: 156 checks, up from 138.
+
 ## v3.1.0 — adding to a live spine
 
 A week is long and obligations arrive mid-cycle. Until now they had nowhere to

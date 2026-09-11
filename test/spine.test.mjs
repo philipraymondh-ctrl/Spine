@@ -40,6 +40,8 @@ async function newPage(ctx) {
     if (mode === "unauthorized") return route.fulfill({ status: 401,
       contentType: "application/json", body: JSON.stringify({ error: { type: "authentication_error" } }) });
     if (mode === "hang") return new Promise(() => {});   // never resolves
+    // Latency, so transient in-flight states are observable.
+    if (mode === "slow") await new Promise(r => setTimeout(r, 2500));
     if (mode === "garbage")
       return route.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ content: [{ type: "text", text: "I'm afraid I can't do that." }] }) });
@@ -69,8 +71,10 @@ async function passDays(page, days = 1) {
 
 async function deferOnce(page, reason) {
   await page.locator("#today-body button", { hasText: "Not today" }).click();
+  // The reason row animates in; wait for it to settle before clicking a chip.
+  await page.waitForSelector(".reason-row:not(.entering)", { timeout: 5000 });
   await page.locator("#today-body button", { hasText: reason }).click();
-  await page.waitForTimeout(40);
+  await page.waitForTimeout(60);
 }
 
 const visible = (page, id) => page.locator("#" + id).evaluate(n => n.classList.contains("on"));
@@ -965,6 +969,145 @@ for (const rec of ["strike", "keep"]) {
   await deferOnce(page, "No time");
   check("the day-done state can still capture something new",
     await page.locator("button", { hasText: "Something new" }).count() === 1);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 23. v3.2 — the strike is witnessed
+// ===========================================================================
+for (const calm of [false, true]) {
+  mode = "ok"; itemCount = 1;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 },
+    ...(calm ? { reducedMotion: "reduce" } : {}) });
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("the thing i keep dodging");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 8000 });
+  for (let n = 0; n < 3; n++) {
+    await deferOnce(page, "No time");
+    if (n < 2) await passDays(page, 1);
+  }
+  await page.waitForSelector(".verdict", { timeout: 8000 });
+
+  const tag = calm ? "[reduced motion] " : "";
+  await page.locator("button", { hasText: "Strike it" }).click();
+  await page.waitForTimeout(900);
+
+  const end = await page.evaluate(() => {
+    const row = document.querySelector(".entry.is-struck");
+    const l = row.querySelector(".l");
+    const r = row.getBoundingClientRect();
+    const cs = getComputedStyle(l);
+    return { inView: r.top >= 0 && r.bottom <= window.innerHeight,
+             color: cs.textDecorationColor, transform: cs.transform,
+             stuck: row.classList.contains("just-struck") };
+  });
+  // The actual complaint was that the strike happened off-screen, below the fold.
+  check(tag + "the struck row is scrolled into view", end.inView);
+  check(tag + "the correction rule ends up fully opaque",
+    /^rgb\(140, 58, 43\)$/.test(end.color), end.color);
+  check(tag + "the tilt survives the settle", end.transform !== "none");
+  check(tag + "the entering class is released", end.stuck === false);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 24. v3.2 — reduced motion is reduced, not removed
+// ===========================================================================
+{
+  const ctx = await browser.newContext({ reducedMotion: "reduce" });
+  const page = await newPage(ctx);
+  await page.goto(URLBASE);
+  const d = await page.evaluate(() => getComputedStyle(document.documentElement)
+    .getPropertyValue("--dur-settle").trim());
+  check("reduced motion shortens the settle rather than deleting it",
+    d === "120ms", d);
+  await ctx.close();
+}
+{
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.goto(URLBASE);
+  const d = await page.evaluate(() => getComputedStyle(document.documentElement)
+    .getPropertyValue("--dur-settle").trim());
+  check("the settle is inside the motion budget", parseInt(d, 10) <= 500, d);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 25. v3.2 — the 45-second wait does not look like a hang
+// ===========================================================================
+{
+  mode = "slow"; itemCount = 1;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("the thing");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-today.on", { timeout: 12000 });
+  await deferOnce(page, "No time");
+  await passDays(page, 1);
+  await deferOnce(page, "No time");
+  await passDays(page, 1);
+
+  // The waiting state is transient — it lives only while the model call is in
+  // flight. Arm the wait before triggering it rather than racing it after.
+  await page.locator("#today-body button", { hasText: "Not today" }).click();
+  await page.waitForSelector(".reason-row:not(.entering)", { timeout: 5000 });
+  const waitingSeen = page.waitForSelector(".verdict[data-waiting]", { timeout: 8000 });
+  await page.locator("#today-body button", { hasText: "No time" }).click();
+  await waitingSeen;
+
+  const live = await page.evaluate(() => {
+    const v = document.querySelector(".verdict[data-waiting]");
+    return { anim: getComputedStyle(v).animationName,
+             busy: document.getElementById("today-body").getAttribute("aria-busy") };
+  });
+  check("the waiting rule breathes", live.anim === "breathe", live.anim);
+  check("and says so to assistive tech", live.busy === "true");
+  await page.waitForSelector(".verdict .rec", { timeout: 15000 });
+  check("the pulse stops when the verdict lands",
+    await page.locator(".verdict[data-waiting]").count() === 0);
+  check("aria-busy is cleared",
+    await page.evaluate(() => document.getElementById("today-body").getAttribute("aria-busy")) === null);
+  await ctx.close();
+}
+
+// ===========================================================================
+// 26. v3.2 — restraint: the burst surfaces stay still
+// ===========================================================================
+{
+  mode = "ok"; itemCount = 6;
+  const ctx = await browser.newContext();
+  const page = await newPage(ctx);
+  await page.addInitScript(() => localStorage.setItem("spine.v1.settings",
+    JSON.stringify({ apiKey: "k", createdAt: "x" })));
+  await page.goto(URLBASE);
+  await page.locator("#dump-text").fill("six things");
+  await page.locator("#dump-go").click();
+  await page.waitForSelector("#s-order.on");
+  // Twelve clicks in a burst: animating this would compound twelve times.
+  const choiceAnim = await page.evaluate(() => {
+    const c = getComputedStyle(document.querySelector(".choice"));
+    return { t: c.transitionProperty, a: c.animationName };
+  });
+  check("the pairwise cards do not animate", choiceAnim.t === "all" || choiceAnim.t === "none",
+    JSON.stringify(choiceAnim));
+  check("the pairwise cards have no keyframes", choiceAnim.a === "none");
+  await answerOrdering(page);
+  const screenAnim = await page.evaluate(() =>
+    getComputedStyle(document.getElementById("s-today")).transitionDuration);
+  check("screen swaps stay instant", screenAnim === "0s", screenAnim);
+  const ledgerAnim = await page.evaluate(() => {
+    const e = document.querySelector(".entry");
+    return getComputedStyle(e).animationName;
+  });
+  check("ledger rows do not stagger in", ledgerAnim === "none", ledgerAnim);
   await ctx.close();
 }
 

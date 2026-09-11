@@ -71,6 +71,17 @@ the next advance.
 That is the line: you may place a new thing once, and then it is as fixed as
 everything else. What you may not do is move anything to accommodate it.
 
+### Motion
+
+Almost none, on purpose. All boldness is spent on the strike: the struck row
+scrolls into view and its correction rule lands over 320ms. The reason row
+bridges a layout swap, and the confrontation's wait breathes so it does not
+read as a hang. Everything else — the pairwise cards, screen swaps, ledger rows
+— stays still, and the tests assert that it does.
+
+`prefers-reduced-motion` reduces rather than removes: a struck commitment still
+has to register.
+
 ## Where the model is load-bearing
 
 Exactly one place: turning a week's ambient prose into discrete units that each
